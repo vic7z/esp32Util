@@ -483,7 +483,6 @@ void drawDeviceMonitor() {
           oled.setDrawColor(0);
         }
 
- Type, Status, Name, RSSI (C=Client, B=BLE)
         oled.setCursor(0, y);
         oled.printf("%c%c", monitoredDevices[i].type == 0 ? 'C' : 'B',
                             monitoredDevices[i].isPresent ? '+' : '-');
@@ -498,7 +497,6 @@ void drawDeviceMonitor() {
         oled.setCursor(104, y);
         oled.printf("%d", monitoredDevices[i].rssi);
 
- MAC address
         oled.setCursor(8, y + 7);
         if (monitoredDevices[i].type == 0) {
           // WiFi: show BSSID
