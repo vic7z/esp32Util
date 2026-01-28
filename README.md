@@ -350,11 +350,9 @@ Connect at **115200 baud** to view:
 
 See CLAUDE.md for complete version history.
 
-## License
 
-Open source - use and modify as needed.
 
 ## Credits
 
 Built for ESP32-C3 with Arduino framework.
-Uses U8g2 graphics library and Adafruit NeoPixel library.
+Uses U8g2 graphics library and Adafruit NeoPixel library and claude code
