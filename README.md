@@ -355,4 +355,5 @@ See CLAUDE.md for complete version history.
 ## Credits
 
 Built for ESP32-C3 with Arduino framework.
-Uses U8g2 graphics library and Adafruit NeoPixel library and claude code
+Uses U8g2 graphics library and Adafruit NeoPixel library 
+Made with help from claude code
