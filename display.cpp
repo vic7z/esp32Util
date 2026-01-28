@@ -6,11 +6,9 @@
 #include "security.h"
 #include "power.h"
 
-/* ========== RGB LED Functions ========== */
 void setRGB(uint32_t color) {
   if (!RGB_ENABLED) return;
 
-  // Apply brightness scaling
   uint8_t r = (color >> 16) & 0xFF;
   uint8_t g = (color >> 8) & 0xFF;
   uint8_t b = color & 0xFF;
@@ -25,8 +23,6 @@ void setRGB(uint32_t color) {
 
 void updateRGBStatus() {
   if (!RGB_ENABLED) return;
-
-  // Don't update LED while screen is sleeping
   if (screenSleeping) return;
 
   if (attackActive) {
@@ -49,7 +45,6 @@ void updateRGBStatus() {
   }
 }
 
-/* ========== Graph Helper Functions ========== */
 void drawGrid(uint8_t x0, uint8_t y0, uint8_t width, uint8_t height) {
   for (int i = 1; i < 4; i++) {
     int y = y0 + (height * i) / 4;
@@ -94,6 +89,3 @@ void drawPatternBar(uint8_t x, uint8_t y, uint8_t width, uint8_t height, uint8_t
     oled.drawBox(x + 1, y + 1, width - 2, height - 2);
   }
 }
-
-// Note: All draw* functions are kept in esp32Util.ino
-// Arduino IDE automatically links .ino files together

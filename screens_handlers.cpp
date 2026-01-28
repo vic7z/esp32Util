@@ -10,11 +10,8 @@
 #include "settings.h"
 #include "device_monitor.h"
 
-/* ========== External Variables ========== */
-// Screen state
 extern Screen currentScreen;
 
-// Button and timing
 extern uint32_t lastScan;
 extern uint32_t lastSecond;
 extern uint32_t lastAutoWifiScan;
@@ -23,15 +20,12 @@ extern uint32_t lastEnvCheck;
 extern uint32_t lastBaselineUpdate;
 extern uint32_t lastBLESort;
 
-// AP Scanner state
 extern uint8_t apCursor, apScroll, apSelectedIndex;
 extern uint8_t apCompareA, apCompareB;
 extern bool apSortedOnce;
 
-// BLE Scanner state
 extern uint8_t bleCursor, bleScroll, bleSelectedIndex;
 
-// Monitor state
 extern uint8_t currentChannel, selectedChannel, analyzerChannel;
 extern bool frozen;
 extern volatile uint32_t pktTotal, pktBeacon, pktData, pktDeauth;
@@ -48,14 +42,11 @@ extern uint32_t chPackets[MAX_CHANNEL + 1];
 extern uint32_t chBeacons[MAX_CHANNEL + 1];
 extern uint32_t chDeauth[MAX_CHANNEL + 1];
 
-// Hidden SSID state
 extern uint8_t hiddenCursor, hiddenScroll;
 
-// Auto watch state
 extern uint16_t autoTotalAPs, autoTotalBLE;
 extern uint8_t autoModeView;
 
-// Walk test state
 extern bool walkTestActive;
 extern char walkTargetSSID[33];
 extern uint8_t walkTargetBSSID[6];
@@ -67,25 +58,19 @@ extern int32_t walkRSSISum;
 extern uint16_t walkSampleCount;
 extern uint8_t walkTestView;
 
-// Insights state
 extern uint8_t whySlowView;
 extern RSSIHistory rssiHistory[MAX_TRACKED_APS];
 extern uint32_t lastRSSISample;
 
-// Security state
 extern uint32_t deauthPerSecond, totalDeauthDetected;
 extern bool attackActive, prevAttackActive;
 extern uint8_t prevRogueCount;
 extern uint8_t deauthChannel;
 extern uint8_t alertLevel;
 
-// Event log state
 extern uint8_t eventCursor, eventScroll;
 
-// Display settings state
 extern uint8_t displaySettingCursor;
-
-/* ========== Menu Handlers ========== */
 
 void handleMainMenu(ButtonEvent ev) {
   if (ev == BTN_SHORT) {
@@ -95,7 +80,7 @@ void handleMainMenu(ButtonEvent ev) {
 
   if (ev == BTN_LONG) {
     switch (mainMenuIndex) {
-      case 0: // Auto Watch
+      case 0:
         currentScreen = SCREEN_AUTO_WATCH;
         autoModeView = 0;
         lastAutoWifiScan = 0;
@@ -108,31 +93,31 @@ void handleMainMenu(ButtonEvent ev) {
         startBLEScan();
         drawAutoWatch();
         break;
-      case 1: // RF Health
+      case 1:
         currentScreen = SCREEN_RF_HEALTH;
         stopAllWifi();
         break;
-      case 2: // Live Monitor
+      case 2:
         currentScreen = SCREEN_MONITOR;
         frozen = false;
         currentChannel = 1;
         resetLiveStats();
         enterSnifferMode(currentChannel);
         break;
-      case 3: // Channel Analyzer
+      case 3:
         currentScreen = SCREEN_ANALYZER;
         selectedChannel = 1;
         resetAnalyzer();
         enterSnifferMode(1);
         break;
-      case 4: // Device Monitor
+      case 4:
         currentScreen = SCREEN_DEVICE_MONITOR;
         deviceCursor = 0;
         deviceScroll = 0;
-        lastScan = 0;  // Force immediate scan
+        lastScan = 0;
         startBLEScan();
         break;
-      case 5: // AP Scanner (direct to AP List)
+      case 5:
         currentScreen = SCREEN_AP_LIST;
         apCursor = apScroll = 0;
         apSortedOnce = false;
@@ -140,32 +125,32 @@ void handleMainMenu(ButtonEvent ev) {
         startApScan();
         lastScan = millis();
         break;
-      case 6: // BLE Monitor (direct to BLE Scan)
+      case 6:
         currentScreen = SCREEN_BLE_SCAN;
         bleCursor = bleScroll = 0;
         stopAllWifi();
         startBLEScan();
         lastScan = millis();
         break;
-      case 7: // Security
+      case 7:
         currentScreen = SCREEN_SECURITY_MENU;
         securityMenuIndex = 0;
         stopAllWifi();
         drawSecurityMenu();
         break;
-      case 8: // Insights
+      case 8:
         currentScreen = SCREEN_INSIGHTS_MENU;
         insightsMenuIndex = 0;
         stopAllWifi();
         drawInsightsMenu();
         break;
-      case 9: // History
+      case 9:
         currentScreen = SCREEN_HISTORY_MENU;
         historyMenuIndex = 0;
         stopAllWifi();
         drawHistoryMenu();
         break;
-      case 10: // System
+      case 10:
         currentScreen = SCREEN_SYSTEM_MENU;
         systemMenuIndex = 0;
         stopAllWifi();
@@ -182,21 +167,21 @@ void handleSecurityMenu(ButtonEvent ev) {
   }
   if (ev == BTN_LONG) {
     switch (securityMenuIndex) {
-      case 0: // Deauth Watch
+      case 0:
         currentScreen = SCREEN_DEAUTH_WATCH;
         currentChannel = 1;
         enterSnifferMode(currentChannel);
         break;
-      case 1: // Rogue AP Watch
+      case 1:
         currentScreen = SCREEN_ROGUE_AP_WATCH;
         enterScanMode();
         startApScan();
         lastScan = millis();
         break;
-      case 2: // BLE Tracker Watch
+      case 2:
         currentScreen = SCREEN_BLE_TRACKER_WATCH;
         break;
-      case 3: // Alert Settings
+      case 3:
         currentScreen = SCREEN_ALERT_SETTINGS;
         break;
     }
@@ -214,22 +199,22 @@ void handleInsightsMenu(ButtonEvent ev) {
   }
   if (ev == BTN_LONG) {
     switch (insightsMenuIndex) {
-      case 0: // Why Is It Slow?
+      case 0:
         currentScreen = SCREEN_WHY_IS_IT_SLOW;
         break;
-      case 1: // Channel Recommendation
+      case 1:
         currentScreen = SCREEN_CHANNEL_RECOMMENDATION;
-        lastScan = 0;  // Force immediate scan
+        lastScan = 0;
         break;
-      case 2: // Environment Change
+      case 2:
         currentScreen = SCREEN_ENVIRONMENT_CHANGE;
-        lastEnvCheck = 0;  // Force immediate scan
+        lastEnvCheck = 0;
         break;
-      case 3: // Quick Snapshot
+      case 3:
         currentScreen = SCREEN_QUICK_SNAPSHOT;
         lastScan = 0;  // Force immediate scan
         break;
-      case 4: // Channel Scorecard
+      case 4:
         currentScreen = SCREEN_CHANNEL_SCORECARD;
         lastScan = 0;  // Force immediate scan
         break;
@@ -248,16 +233,16 @@ void handleHistoryMenu(ButtonEvent ev) {
   }
   if (ev == BTN_LONG) {
     switch (historyMenuIndex) {
-      case 0: // Event Log
+      case 0:
         currentScreen = SCREEN_EVENT_LOG;
         break;
-      case 1: // Baseline Compare
+      case 1:
         currentScreen = SCREEN_BASELINE_COMPARE;
-        lastBaselineUpdate = 0;  // Force immediate scan
+        lastBaselineUpdate = 0;
         break;
-      case 2: // Export Data
+      case 2:
         currentScreen = SCREEN_EXPORT;
-        lastScan = 0;  // Force immediate scan for fresh data
+        lastScan = 0;
         break;
     }
   }
@@ -274,19 +259,19 @@ void handleSystemMenu(ButtonEvent ev) {
   }
   if (ev == BTN_LONG) {
     switch (systemMenuIndex) {
-      case 0: // Battery & Power
+      case 0:
         currentScreen = SCREEN_BATTERY_POWER;
         break;
-      case 1: // Display
+      case 1:
         currentScreen = SCREEN_DISPLAY_SETTINGS;
         break;
-      case 2: // Radio Control
+      case 2:
         currentScreen = SCREEN_RADIO_CONTROL;
         break;
-      case 3: // Power Mode
+      case 3:
         currentScreen = SCREEN_POWER_MODE;
         break;
-      case 4: // About
+      case 4:
         currentScreen = SCREEN_ABOUT;
         break;
     }
@@ -297,10 +282,7 @@ void handleSystemMenu(ButtonEvent ev) {
   }
 }
 
-/* ========== Main Screen Handlers ========== */
-
 void handleAutoWatch(ButtonEvent ev) {
-  // Handle buttons first for better responsiveness
   if (ev == BTN_SHORT || ev == BTN_LONG) {
     autoModeView = (autoModeView + 1) % 4;  // 4 views: Summary, Top APs, Top BLE, Channel APs
     Serial.printf("[AUTO] View: %d\n", autoModeView);
@@ -316,10 +298,8 @@ void handleAutoWatch(ButtonEvent ev) {
     return;
   }
 
-  // Use static cached BLE count to prevent flickering
   static uint16_t stableBLECount = 0;
 
-  // Periodic AP scan (every 5 seconds) - don't touch BLE during this
   if (millis() - lastAutoWifiScan > 5000) {
     enterScanMode();
     startApScan();
@@ -330,17 +310,14 @@ void handleAutoWatch(ButtonEvent ev) {
     enterSnifferMode(currentChannel);
     startBLEScan();
   }
-  // Cycle channel for sniffing - don't touch BLE during this
   else if (millis() - lastSecond > 1000) {
     currentChannel = (currentChannel % 11) + 1;
     enterSnifferMode(currentChannel);
     lastSecond = millis();
   }
-  // Normal frame - safe to update BLE
   else {
     updateBLEScan();
     uint8_t newCount = getActiveBLECount();
-    // Only accept valid counts (0 to MAX_BLE_DEVICES)
     if (newCount <= MAX_BLE_DEVICES) {
       stableBLECount = newCount;
     }
@@ -351,13 +328,12 @@ void handleAutoWatch(ButtonEvent ev) {
 }
 
 void handleRFHealth(ButtonEvent ev) {
-  // Scan periodically for fresh data
   if (millis() - lastScan > 3000) {
     enterScanMode();
     startApScan();
-    delay(1500);  // Wait for scan to complete (WiFi scans take ~1-2 seconds)
+    delay(1500);
     fetchApResults(false);
-    updateBLEScan(); // Update BLE devices
+    updateBLEScan();
     lastScan = millis();
   }
 
@@ -506,10 +482,7 @@ void handleDeviceDetail(ButtonEvent ev) {
   }
 }
 
-/* ========== AP Scanner Handlers ========== */
-
 void handleApList(ButtonEvent ev) {
-  // Handle buttons FIRST for better responsiveness
   if (ev == BTN_SHORT && apCount > 0) {
     if (apScroll + apCursor + 1 < apCount) {
       if (apCursor < AP_VISIBLE - 1) apCursor++;
@@ -532,7 +505,6 @@ void handleApList(ButtonEvent ev) {
     return;
   }
 
-  // Scan operations after button handling
   if (millis() - lastScan > 2000) {
     fetchApResults(false);
     startApScan();
@@ -547,7 +519,6 @@ void handleApDetail(ButtonEvent ev) {
     currentScreen = SCREEN_AP_LIST;
   }
   if (ev == BTN_LONG) {
-    // Start Walk Test for this AP - save BSSID and SSID
     if (apSelectedIndex < apCount) {
       memcpy(walkTargetBSSID, apList[apSelectedIndex].bssid, 6);
       strncpy(walkTargetSSID, (char*)apList[apSelectedIndex].ssid, 32);
@@ -572,36 +543,30 @@ void handleApDetail(ButtonEvent ev) {
 }
 
 void handleAPWalkTest(ButtonEvent ev) {
-  // Toggle view on short press
   if (ev == BTN_SHORT) {
     walkTestView = (walkTestView + 1) % 2;
-    delay(50); // Small delay to debounce
+    delay(50);
     drawAPWalkTest();
     return;
   }
 
-  // Scan for target AP frequently (every 1.5 seconds for updates)
   if (millis() - lastScan > 1500) {
     enterScanMode();
     startApScan();
-    delay(1500); // Wait for scan to complete
+    delay(1500);
     fetchApResults(false);
 
-    // Find target AP by BSSID and update walk test stats
     if (apCount > 0) {
       for (int i = 0; i < apCount; i++) {
         if (memcmp(apList[i].bssid, walkTargetBSSID, 6) == 0) {
           int8_t rssi = apList[i].rssi;
 
-          // Add to history
           walkRSSIHistory[walkHistoryIndex] = rssi;
           walkHistoryIndex = (walkHistoryIndex + 1) % WALK_HISTORY_SIZE;
 
-          // Update min/max
           if (walkSampleCount == 0 || rssi < walkMinRSSI) walkMinRSSI = rssi;
           if (walkSampleCount == 0 || rssi > walkMaxRSSI) walkMaxRSSI = rssi;
 
-          // Update average
           walkRSSISum += rssi;
           walkSampleCount++;
           break;
@@ -616,7 +581,7 @@ void handleAPWalkTest(ButtonEvent ev) {
     currentScreen = SCREEN_AP_DETAIL;
     stopAllWifi();
     walkTestActive = false;
-    walkTestView = 0; // Reset view
+    walkTestView = 0;
     drawApDetail();
     return;
   }
@@ -666,10 +631,7 @@ void handleHiddenSSID(ButtonEvent ev) {
   drawHiddenSSID();
 }
 
-/* ========== BLE Scanner Handlers ========== */
-
 void handleBLEScan(ButtonEvent ev) {
-  // Handle buttons FIRST for better responsiveness
   if (ev == BTN_SHORT && bleDeviceCount > 0) {
     if (bleScroll + bleCursor + 1 < bleDeviceCount) {
       if (bleCursor < BLE_VISIBLE - 1) bleCursor++;
@@ -695,15 +657,12 @@ void handleBLEScan(ButtonEvent ev) {
     return;
   }
 
-  // Update BLE scan after button handling (non-blocking)
   updateBLEScan();
 
-  // Sort devices periodically (every 2 seconds) to prevent list shuffling during scrolling
   if (bleDeviceCount > 1 && millis() - lastBLESort > 2000) {
     sortBLEByRSSI();
     lastBLESort = millis();
 
-    // Validate cursor/scroll positions after sorting
     if (bleScroll + bleCursor >= bleDeviceCount) {
       if (bleDeviceCount > BLE_VISIBLE) {
         bleScroll = bleDeviceCount - BLE_VISIBLE;
@@ -715,16 +674,14 @@ void handleBLEScan(ButtonEvent ev) {
     }
   }
 
-  // Validate bounds
   if (bleScroll + bleCursor >= bleDeviceCount && bleDeviceCount > 0) {
     bleCursor = 0;
     bleScroll = 0;
   }
 
-  // Redraw screen
   drawBLEScan();
 
-  yield(); // Feed watchdog
+  yield();
 }
 
 void handleBLEDetail(ButtonEvent ev) {
@@ -734,7 +691,6 @@ void handleBLEDetail(ButtonEvent ev) {
   }
 
   if (ev == BTN_LONG) {
-    // Start Walk Test for this BLE device - save address
     if (bleSelectedIndex < bleDeviceCount) {
       walkTargetBLEAddr = bleDevices[bleSelectedIndex].address;
 
@@ -760,33 +716,27 @@ void handleBLEDetail(ButtonEvent ev) {
 }
 
 void handleBLEWalkTest(ButtonEvent ev) {
-  // Toggle view on short press
   if (ev == BTN_SHORT) {
     walkTestView = (walkTestView + 1) % 2;
-    delay(50); // Small delay to debounce
+    delay(50);
     drawBLEWalkTest();
     return;
   }
 
-  // Update BLE scan frequently (every 500ms for fast updates)
   updateBLEScan();
 
   if (millis() - lastScan > 500) {
-    // Find target BLE device by address and update walk test stats
     if (bleDeviceCount > 0 && walkTargetBLEAddr.length() > 0) {
       for (int i = 0; i < bleDeviceCount; i++) {
         if (bleDevices[i].address == walkTargetBLEAddr) {
           int8_t rssi = bleDevices[i].rssi;
 
-          // Add to history
           walkRSSIHistory[walkHistoryIndex] = rssi;
           walkHistoryIndex = (walkHistoryIndex + 1) % WALK_HISTORY_SIZE;
 
-          // Update min/max
           if (walkSampleCount == 0 || rssi < walkMinRSSI) walkMinRSSI = rssi;
           if (walkSampleCount == 0 || rssi > walkMaxRSSI) walkMaxRSSI = rssi;
 
-          // Update average
           walkRSSISum += rssi;
           walkSampleCount++;
           break;
@@ -800,7 +750,7 @@ void handleBLEWalkTest(ButtonEvent ev) {
   if (ev == BTN_BACK) {
     currentScreen = SCREEN_BLE_DETAIL;
     stopBLEScan();
-    walkTestView = 0; // Reset view
+    walkTestView = 0;
     drawBLEDetail();
     return;
   }
@@ -808,31 +758,25 @@ void handleBLEWalkTest(ButtonEvent ev) {
   drawBLEWalkTest();
 }
 
-/* ========== Security Handlers ========== */
-
 void handleDeauthWatch(ButtonEvent ev) {
-  // Channel hopping - scan all channels for deauth packets
   static uint32_t lastChannelHop = 0;
-  if (millis() - lastChannelHop > 500) {  // Hop every 500ms
+  if (millis() - lastChannelHop > 500) {
     currentChannel = (currentChannel % MAX_CHANNEL) + 1;
     enterSnifferMode(currentChannel);
     lastChannelHop = millis();
   }
 
-  // Update total deauth counter
   totalDeauthDetected = pktDeauth;
 
-  // Update alert level based on attack status
   if (attackActive) {
-    alertLevel = 2;  // Critical - red blink
+    alertLevel = 2;
   } else if (deauthPerSecond > 0) {
-    alertLevel = 1;  // Warning - orange blink
+    alertLevel = 1;
   } else {
-    alertLevel = 0;  // Normal - green
+    alertLevel = 0;
   }
   updateAlertLED();
 
-  // Log attack events
   if (attackActive && !prevAttackActive) {
     char msg[40];
     snprintf(msg, 40, "Deauth attack! Ch%d %lu/sec", currentChannel, deauthPerSecond);
@@ -947,8 +891,6 @@ void handleAlertSettings(ButtonEvent ev) {
     drawSecurityMenu();
   }
 }
-
-/* ========== Insights Handlers ========== */
 
 void updateRSSIHistory() {
   // Track top 3 APs by RSSI
@@ -1119,8 +1061,6 @@ void handleChannelScorecard(ButtonEvent ev) {
   }
 }
 
-/* ========== History Handlers ========== */
-
 void handleEventLog(ButtonEvent ev) {
   drawEventLog();
 
@@ -1149,8 +1089,6 @@ void handleBaselineCompare(ButtonEvent ev) {
     drawHistoryMenu();
   }
 }
-
-/* ========== System Handlers ========== */
 
 void handleBatteryPower(ButtonEvent ev) {
   drawBatteryPower();
@@ -1287,8 +1225,6 @@ void handleExport(ButtonEvent ev) {
     return;
   }
 }
-
-/* ========== Utility Handlers ========== */
 
 void handleStats(ButtonEvent ev) {
   if (ev == BTN_SHORT) {

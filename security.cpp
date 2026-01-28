@@ -1,11 +1,9 @@
 #include "security.h"
 #include "wifi_scanner.h"
 
-/* ========== Rogue AP Data ========== */
 RogueAP rogueList[MAX_ROGUE_APS];
 uint8_t rogueCount = 0;
 
-/* ========== Rogue AP Detection ========== */
 void detectRogueAPs() {
   rogueCount = 0;
   for (int i = 0; i < apCount && rogueCount < MAX_ROGUE_APS; i++) {

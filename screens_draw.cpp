@@ -7,8 +7,6 @@
 #include "security.h"
 #include "alerts.h"
 
-/* ========== External Variables ========== */
-// These are defined in the main .ino file
 extern uint32_t pps, peak, peakPPS;
 extern uint32_t history[HISTORY_SIZE];
 extern uint8_t histIdx;
@@ -54,14 +52,11 @@ extern int8_t rfHealthRSSIHistory[60];
 extern uint8_t rfHealthHistoryIndex;
 extern int8_t rfHealthMinRSSI, rfHealthMaxRSSI;
 
-/* ========== Helper Functions ========== */
-
 void drawGenericMenu(const char* title, const char** items, uint8_t itemCount, uint8_t& cursor) {
   oled.firstPage();
   do {
     oled.setFont(u8g2_font_6x10_tf);
 
-    // Center title
     uint8_t titleWidth = strlen(title) * 6;
     uint8_t titleX = (128 - titleWidth) / 2;
     oled.drawStr(titleX, 8, title);
@@ -85,14 +80,12 @@ void takeSnapshot(Baseline* snap) {
   snap->timestamp = millis();
   snap->totalAPs = apCount;
 
-  // Calculate average RSSI
   int32_t rssiSum = 0;
   for (int i = 0; i < apCount; i++) {
     rssiSum += apList[i].rssi;
   }
   snap->avgRSSI = apCount > 0 ? rssiSum / apCount : 0;
 
-  // Channel distribution
   memset(snap->channelDist, 0, sizeof(snap->channelDist));
   for (int i = 0; i < apCount; i++) {
     if (apList[i].primary >= 1 && apList[i].primary <= 13) {
@@ -100,11 +93,9 @@ void takeSnapshot(Baseline* snap) {
     }
   }
 
-  snap->totalPackets = totalPackets;  // Use cumulative packet count
+  snap->totalPackets = totalPackets;
   snap->saved = true;
 }
-
-/* ========== Menu Drawing ========== */
 
 void drawMenu() {
   drawGenericMenu("POCKET RF TOOL", mainMenuItems, MAIN_MENU_SIZE, mainMenuIndex);
@@ -126,8 +117,6 @@ void drawSystemMenu() {
   drawGenericMenu("SYSTEM", systemMenuItems, SYSTEM_MENU_SIZE, systemMenuIndex);
 }
 
-/* ========== Main Screens ========== */
-
 void drawMonitor() {
   oled.firstPage();
   do {
@@ -145,7 +134,6 @@ void drawMonitor() {
     oled.setCursor(54, 25);
     oled.printf("%ddBm", (int)avgRssi);
 
-    // Signal alert indicator
     if (avgRssi > settings.rssiThreshold) {
       oled.setFont(u8g2_font_4x6_tf);
       oled.drawStr(110, 25, "!");
@@ -251,7 +239,6 @@ void drawAutoWatch() {
     oled.setFont(u8g2_font_6x10_tf);
 
     if (autoModeView == 0) {
-      // Summary view
       oled.drawStr(28, 8, "AUTO WATCH");
       oled.setFont(u8g2_font_4x6_tf);
       oled.drawStr(8, 16, "Auto WiFi+BLE Monitor");
@@ -272,7 +259,6 @@ void drawAutoWatch() {
       }
 
     } else if (autoModeView == 1) {
-      // Top APs view
       oled.drawStr(25, 8, "TOP APs");
       oled.setFont(u8g2_font_5x7_tf);
 
@@ -288,11 +274,9 @@ void drawAutoWatch() {
       }
 
     } else if (autoModeView == 2) {
-      // Top BLE view
       oled.drawStr(25, 8, "TOP BLE");
       oled.setFont(u8g2_font_5x7_tf);
 
-      // Only show active devices
       uint8_t displayedCount = 0;
       for (int i = 0; i < bleDeviceCount && displayedCount < 4; i++) {
         if (!bleDevices[i].isActive) continue; // Skip inactive devices
@@ -312,13 +296,11 @@ void drawAutoWatch() {
       }
 
     } else if (autoModeView == 3) {
-      // Channel APs view - show APs on current channel
       char title[20];
       sprintf(title, "CH%d APs", currentChannel);
       oled.drawStr(30, 8, title);
       oled.setFont(u8g2_font_4x6_tf);
 
-      // Count and show APs on current channel
       uint8_t channelAPCount = 0;
       uint8_t shown = 0;
       for (int i = 0; i < apCount && shown < 5; i++) {
@@ -335,7 +317,6 @@ void drawAutoWatch() {
         }
       }
 
-      // Count remaining
       for (int i = 0; i < apCount; i++) {
         if (apList[i].primary == currentChannel) channelAPCount++;
       }
@@ -354,13 +335,10 @@ void drawAutoWatch() {
 
 void drawRFHealth() {
   if (rfHealthView == 0) {
-    // Stats view
-    // Calculate RF health metrics
     int totalDevices = apCount + bleDeviceCount;
     int avgRSSI = 0;
-    int channelLoad[13] = {0}; // Channel congestion counter
+    int channelLoad[13] = {0};
 
-    // Calculate average RSSI and channel load from APs
     if (apCount > 0) {
       long rssiSum = 0;
       for (int i = 0; i < apCount; i++) {
@@ -372,7 +350,6 @@ void drawRFHealth() {
       avgRSSI = rssiSum / apCount;
     }
 
-    // Find busiest channel
     int busiestCh = 0;
     int maxLoad = 0;
     for (int i = 0; i < 13; i++) {
@@ -382,14 +359,13 @@ void drawRFHealth() {
       }
     }
 
-    // Calculate health score (0-100, higher is better)
     int healthScore = 100;
-    if (maxLoad > 10) healthScore -= 30; // Very congested
-    else if (maxLoad > 5) healthScore -= 15; // Moderately congested
-    if (avgRSSI < -80) healthScore -= 20; // Weak signals
-    else if (avgRSSI < -70) healthScore -= 10; // Fair signals
-    if (totalDevices > 50) healthScore -= 20; // Very crowded
-    else if (totalDevices > 30) healthScore -= 10; // Crowded
+    if (maxLoad > 10) healthScore -= 30;
+    else if (maxLoad > 5) healthScore -= 15;
+    if (avgRSSI < -80) healthScore -= 20;
+    else if (avgRSSI < -70) healthScore -= 10;
+    if (totalDevices > 50) healthScore -= 20;
+    else if (totalDevices > 30) healthScore -= 10;
 
     healthScore = constrain(healthScore, 0, 100);
 
@@ -424,27 +400,22 @@ void drawRFHealth() {
       oled.drawStr(85, 63, "BACK");
     } while (oled.nextPage());
   } else {
-    // RSSI Graph view
     oled.firstPage();
     do {
       oled.setFont(u8g2_font_6x10_tf);
       oled.drawStr(15, 10, "Avg RSSI Graph");
 
-      // Draw graph area
       const uint8_t graphX = 10;
       const uint8_t graphY = 15;
       const uint8_t graphW = 108;
       const uint8_t graphH = 35;
 
-      // Draw graph border
       oled.drawFrame(graphX, graphY, graphW, graphH);
 
-      // Draw RSSI scale
       oled.setFont(u8g2_font_4x6_tf);
       oled.drawStr(0, graphY + 5, "-30");
       oled.drawStr(0, graphY + graphH - 2, "-90");
 
-      // Draw horizontal grid lines
       for (int i = 1; i < 3; i++) {
         uint8_t y = graphY + (graphH * i / 3);
         for (uint8_t x = graphX; x < graphX + graphW; x += 4) {
@@ -452,7 +423,6 @@ void drawRFHealth() {
         }
       }
 
-      // Plot RSSI history
       for (int i = 1; i < 60; i++) {
         int idx1 = (rfHealthHistoryIndex + i - 1) % 60;
         int idx2 = (rfHealthHistoryIndex + i) % 60;
@@ -460,20 +430,14 @@ void drawRFHealth() {
         int8_t rssi2 = rfHealthRSSIHistory[idx2];
 
         if (rssi1 != 0 && rssi2 != 0) {
-          // Map RSSI (-30 to -90) to graph Y coordinates
           uint8_t y1 = graphY + graphH - ((rssi1 + 90) * graphH / 60);
           uint8_t y2 = graphY + graphH - ((rssi2 + 90) * graphH / 60);
-
-          // Map sample index to X coordinates
           uint8_t x1 = graphX + (i - 1) * graphW / 60;
           uint8_t x2 = graphX + i * graphW / 60;
-
-          // Draw line between points
           oled.drawLine(x1, y1, x2, y2);
         }
       }
 
-      // Show current avg and min/max
       oled.setFont(u8g2_font_4x6_tf);
       int8_t currentAvg = rfHealthRSSIHistory[(rfHealthHistoryIndex - 1 + 60) % 60];
       oled.setCursor(0, 54);
@@ -514,13 +478,12 @@ void drawDeviceMonitor() {
 
         uint8_t y = 16 + (shown * 16);
 
-        // Highlight cursor
         if (shown == deviceCursor) {
           oled.drawBox(0, y - 6, 128, 15);
           oled.setDrawColor(0);
         }
 
-        // Line 1: Type, Status, Name, RSSI (C=Client, B=BLE)
+ Type, Status, Name, RSSI (C=Client, B=BLE)
         oled.setCursor(0, y);
         oled.printf("%c%c", monitoredDevices[i].type == 0 ? 'C' : 'B',
                             monitoredDevices[i].isPresent ? '+' : '-');
@@ -535,7 +498,7 @@ void drawDeviceMonitor() {
         oled.setCursor(104, y);
         oled.printf("%d", monitoredDevices[i].rssi);
 
-        // Line 2: MAC address
+ MAC address
         oled.setCursor(8, y + 7);
         if (monitoredDevices[i].type == 0) {
           // WiFi: show BSSID
@@ -559,7 +522,6 @@ void drawDeviceMonitor() {
       if (activeIndex < monitoredDeviceCount) oled.drawStr(122, 58, "v");
     }
 
-    // Footer
     oled.setFont(u8g2_font_4x6_tf);
     oled.drawLine(0, 54, 127, 54);
     oled.drawStr(0, 61, "SEL");
@@ -584,7 +546,6 @@ void drawDeviceDetail() {
 
     oled.setFont(u8g2_font_4x6_tf);
 
-    // Device name
     oled.setCursor(0, 20);
     oled.print("Name:");
     oled.setCursor(30, 20);
@@ -593,7 +554,6 @@ void drawDeviceDetail() {
     name[19] = '\0';
     oled.print(name);
 
-    // BSSID/Address
     oled.setCursor(0, 28);
     if (dev->type == 0) {
       oled.print("BSSID:");
@@ -607,33 +567,26 @@ void drawDeviceDetail() {
       oled.print(dev->bleAddr);
     }
 
-    // RSSI
     oled.setCursor(0, 36);
     oled.printf("RSSI: %ddBm", dev->rssi);
 
-    // Channel (WiFi only)
     if (dev->type == 0) {
       oled.setCursor(64, 36);
       oled.printf("CH: %d", dev->channel);
     }
 
-    // Status
     oled.setCursor(0, 44);
     oled.print("Status:");
     oled.setCursor(35, 44);
     oled.print(dev->isPresent ? "Present" : "Not Seen");
 
-    // Seen count
     oled.setCursor(0, 52);
     oled.printf("Seen: %d times", dev->seenCount);
 
-    // Footer
     oled.drawLine(0, 54, 127, 54);
     oled.drawStr(85, 61, "BACK");
   } while (oled.nextPage());
 }
-
-/* ========== AP Scanner Screens ========== */
 
 void drawApList() {
   oled.firstPage();
@@ -671,12 +624,10 @@ void drawApList() {
       oled.setCursor(75, yPos);
       oled.printf("CH%d", apList[idx].primary);
 
-      // Quality grade
       char grade = getQualityGrade(&apList[idx]);
       oled.setCursor(100, yPos);
       oled.print(grade);
 
-      // Signal bars
       int rssi = apList[idx].rssi;
       int bars = 0;
       if (rssi >= -50) bars = 4;
@@ -694,7 +645,6 @@ void drawApList() {
         }
       }
 
-      // Vendor/Distance on second line
       oled.setFont(u8g2_font_4x6_tf);
       oled.setCursor(13, yPos + 7);
       oled.printf("%s %.1fm", getVendor(apList[idx].bssid),
@@ -737,7 +687,6 @@ void drawApDetail() {
       ap->bssid[0], ap->bssid[1], ap->bssid[2],
       ap->bssid[3], ap->bssid[4], ap->bssid[5]);
 
-    // Button hints
     oled.drawLine(0, 54, 127, 54);  // Separator line
     oled.setFont(u8g2_font_4x6_tf);
     oled.drawStr(0, 61, "LONG=Walk BACK=List");
@@ -746,14 +695,12 @@ void drawApDetail() {
 
 void drawAPWalkTest() {
   if (walkTestView == 0) {
-    // Stats view
     oled.firstPage();
     do {
       oled.setFont(u8g2_font_6x10_tf);
       oled.drawStr(15, 10, "AP WALK TEST");
 
       if (walkTestActive) {
-        // Show SSID (from saved name)
         oled.setFont(u8g2_font_5x7_tf);
         char ssid[17];
         strncpy(ssid, walkTargetSSID, 16);
@@ -761,7 +708,6 @@ void drawAPWalkTest() {
         oled.setCursor(0, 20);
         oled.printf("%s", strlen(walkTargetSSID) ? ssid : "<hidden>");
 
-        // Current RSSI (from last sample)
         int8_t currentRSSI = (walkSampleCount > 0) ? walkRSSIHistory[(walkHistoryIndex - 1 + WALK_HISTORY_SIZE) % WALK_HISTORY_SIZE] : 0;
         oled.setCursor(0, 30);
         if (currentRSSI != 0) {
@@ -770,13 +716,11 @@ void drawAPWalkTest() {
           oled.print("Scanning...");
         }
 
-        // Min/Max/Avg
         int8_t avgRSSI = walkSampleCount > 0 ? (walkRSSISum / walkSampleCount) : 0;
         oled.setFont(u8g2_font_4x6_tf);
         oled.setCursor(0, 40);
         oled.printf("Min:%d Max:%d Avg:%d", walkMinRSSI, walkMaxRSSI, avgRSSI);
 
-        // Draw RSSI history graph
         oled.drawFrame(0, 45, 128, 16);
         for (int i = 0; i < WALK_HISTORY_SIZE && i < 126; i++) {
           int idx = (walkHistoryIndex + i) % WALK_HISTORY_SIZE;
@@ -795,27 +739,22 @@ void drawAPWalkTest() {
       }
     } while (oled.nextPage());
   } else {
-    // Full graph view
     oled.firstPage();
     do {
       oled.setFont(u8g2_font_6x10_tf);
       oled.drawStr(20, 10, "RSSI Graph");
 
-      // Draw graph area
       const uint8_t graphX = 10;
       const uint8_t graphY = 15;
       const uint8_t graphW = 108;
       const uint8_t graphH = 35;
 
-      // Draw graph border
       oled.drawFrame(graphX, graphY, graphW, graphH);
 
-      // Draw RSSI scale
       oled.setFont(u8g2_font_4x6_tf);
       oled.drawStr(0, graphY + 5, "-30");
       oled.drawStr(0, graphY + graphH - 2, "-90");
 
-      // Draw horizontal grid lines
       for (int i = 1; i < 3; i++) {
         uint8_t y = graphY + (graphH * i / 3);
         for (uint8_t x = graphX; x < graphX + graphW; x += 4) {
@@ -823,7 +762,6 @@ void drawAPWalkTest() {
         }
       }
 
-      // Plot RSSI history
       for (int i = 1; i < WALK_HISTORY_SIZE; i++) {
         int idx1 = (walkHistoryIndex + i - 1) % WALK_HISTORY_SIZE;
         int idx2 = (walkHistoryIndex + i) % WALK_HISTORY_SIZE;
@@ -831,20 +769,16 @@ void drawAPWalkTest() {
         int8_t rssi2 = walkRSSIHistory[idx2];
 
         if (rssi1 != 0 && rssi2 != 0) {
-          // Map RSSI (-30 to -90) to graph Y coordinates
-          uint8_t y1 = graphY + graphH - ((rssi1 + 90) * graphH / 60);
+                    uint8_t y1 = graphY + graphH - ((rssi1 + 90) * graphH / 60);
           uint8_t y2 = graphY + graphH - ((rssi2 + 90) * graphH / 60);
 
-          // Map sample index to X coordinates
-          uint8_t x1 = graphX + (i - 1) * graphW / WALK_HISTORY_SIZE;
+                    uint8_t x1 = graphX + (i - 1) * graphW / WALK_HISTORY_SIZE;
           uint8_t x2 = graphX + i * graphW / WALK_HISTORY_SIZE;
 
-          // Draw line between points
-          oled.drawLine(x1, y1, x2, y2);
+                    oled.drawLine(x1, y1, x2, y2);
         }
       }
 
-      // Show AP name and stats
       oled.setFont(u8g2_font_4x6_tf);
       oled.setCursor(0, 54);
       char ssid[17];
@@ -871,7 +805,6 @@ void drawCompare() {
 
     oled.setFont(u8g2_font_4x6_tf);
 
-    // AP A (left)
     oled.setCursor(0, 16);
     char ssidA[9] = {0};
     strncpy(ssidA, (char*)apA->ssid, 8);
@@ -892,12 +825,10 @@ void drawCompare() {
     oled.setCursor(0, 56);
     oled.printf("DIST:%.1fm", estimateDistance(apA->rssi));
 
-    // Divider
     for (int y = 12; y < 60; y += 2) {
       oled.drawPixel(64, y);
     }
 
-    // AP B (right)
     oled.setCursor(68, 16);
     char ssidB[9] = {0};
     strncpy(ssidB, (char*)apB->ssid, 8);
@@ -918,7 +849,6 @@ void drawCompare() {
     oled.setCursor(68, 56);
     oled.printf("DIST:%.1fm", estimateDistance(apB->rssi));
 
-    // Winner indicator
     char gradeA = getQualityGrade(apA);
     char gradeB = getQualityGrade(apB);
     if (gradeA < gradeB) {
@@ -931,8 +861,6 @@ void drawCompare() {
 
   } while (oled.nextPage());
 }
-
-/* ========== BLE Scanner Screens ========== */
 
 void drawBLEScan() {
   oled.firstPage();
@@ -959,7 +887,6 @@ void drawBLEScan() {
 
         if (row == bleCursor) oled.drawStr(0, yPos, ">");
 
-        // Beacon type indicator
         oled.setFont(u8g2_font_4x6_tf);
         if (bleDevices[idx].advType == 1) {
           oled.drawStr(7, yPos, "B"); // Beacon
@@ -969,20 +896,17 @@ void drawBLEScan() {
           oled.drawStr(7, yPos, "-"); // Inactive
         }
 
-        // Device name (truncated)
         oled.setFont(u8g2_font_5x7_tf);
         char nameBuf[11] = {0};
         strncpy(nameBuf, bleDevices[idx].name.c_str(), 10);
         nameBuf[10] = 0;
         oled.drawStr(13, yPos, nameBuf);
 
-        // RSSI
-        oled.setFont(u8g2_font_4x6_tf);
+            oled.setFont(u8g2_font_4x6_tf);
         oled.setCursor(80, yPos);
         oled.printf("%d", bleDevices[idx].rssi);
 
-        // Signal bars
-        int rssi = bleDevices[idx].rssi;
+          int rssi = bleDevices[idx].rssi;
         int bars = 0;
         if (rssi >= -50) bars = 4;
         else if (rssi >= -65) bars = 3;
@@ -999,7 +923,6 @@ void drawBLEScan() {
           }
         }
 
-        // MAC Address on second line
         oled.setFont(u8g2_font_4x6_tf);
         oled.setCursor(13, yPos + 7);
         char macBuf[13] = {0};
@@ -1047,7 +970,6 @@ void drawBLEDetail() {
     oled.setCursor(0, 51);
     oled.printf("MAC:%s", dev->address.c_str());
 
-    // Button hints
     oled.drawLine(0, 54, 127, 54);  // Separator line
     oled.setFont(u8g2_font_4x6_tf);
     oled.drawStr(0, 61, "LONG=Walk BACK=List");
@@ -1056,7 +978,6 @@ void drawBLEDetail() {
 
 void drawBLEWalkTest() {
   if (walkTestView == 0) {
-    // Stats view
     oled.firstPage();
     do {
       oled.setFont(u8g2_font_6x10_tf);
@@ -1093,7 +1014,6 @@ void drawBLEWalkTest() {
         oled.setCursor(0, 40);
         oled.printf("Min:%d Max:%d Avg:%d", walkMinRSSI, walkMaxRSSI, avgRSSI);
 
-        // Draw RSSI history graph
         oled.drawFrame(0, 45, 128, 16);
         for (int i = 0; i < WALK_HISTORY_SIZE && i < 126; i++) {
           int idx = (walkHistoryIndex + i) % WALK_HISTORY_SIZE;
@@ -1112,27 +1032,22 @@ void drawBLEWalkTest() {
       }
     } while (oled.nextPage());
   } else {
-    // Full graph view
     oled.firstPage();
     do {
       oled.setFont(u8g2_font_6x10_tf);
       oled.drawStr(20, 10, "RSSI Graph");
 
-      // Draw graph area
       const uint8_t graphX = 10;
       const uint8_t graphY = 15;
       const uint8_t graphW = 108;
       const uint8_t graphH = 35;
 
-      // Draw graph border
       oled.drawFrame(graphX, graphY, graphW, graphH);
 
-      // Draw RSSI scale
       oled.setFont(u8g2_font_4x6_tf);
       oled.drawStr(0, graphY + 5, "-30");
       oled.drawStr(0, graphY + graphH - 2, "-90");
 
-      // Draw horizontal grid lines
       for (int i = 1; i < 3; i++) {
         uint8_t y = graphY + (graphH * i / 3);
         for (uint8_t x = graphX; x < graphX + graphW; x += 4) {
@@ -1140,7 +1055,6 @@ void drawBLEWalkTest() {
         }
       }
 
-      // Plot RSSI history
       for (int i = 1; i < WALK_HISTORY_SIZE; i++) {
         int idx1 = (walkHistoryIndex + i - 1) % WALK_HISTORY_SIZE;
         int idx2 = (walkHistoryIndex + i) % WALK_HISTORY_SIZE;
@@ -1148,16 +1062,13 @@ void drawBLEWalkTest() {
         int8_t rssi2 = walkRSSIHistory[idx2];
 
         if (rssi1 != 0 && rssi2 != 0) {
-          // Map RSSI (-30 to -90) to graph Y coordinates
-          uint8_t y1 = graphY + graphH - ((rssi1 + 90) * graphH / 60);
+                    uint8_t y1 = graphY + graphH - ((rssi1 + 90) * graphH / 60);
           uint8_t y2 = graphY + graphH - ((rssi2 + 90) * graphH / 60);
 
-          // Map sample index to X coordinates
-          uint8_t x1 = graphX + (i - 1) * graphW / WALK_HISTORY_SIZE;
+                    uint8_t x1 = graphX + (i - 1) * graphW / WALK_HISTORY_SIZE;
           uint8_t x2 = graphX + i * graphW / WALK_HISTORY_SIZE;
 
-          // Draw line between points
-          oled.drawLine(x1, y1, x2, y2);
+                    oled.drawLine(x1, y1, x2, y2);
         }
       }
 
@@ -1177,8 +1088,6 @@ void drawBLEWalkTest() {
   }
 }
 
-/* ========== Security Screens ========== */
-
 void drawDeauthWatch() {
   oled.firstPage();
   do {
@@ -1195,7 +1104,6 @@ void drawDeauthWatch() {
     oled.setCursor(0, 42);
     oled.printf("Total: %lu", totalDeauthDetected);
 
-    // Status with visual indicator
     oled.setCursor(0, 52);
     if (attackActive) {
       oled.setFont(u8g2_font_6x10_tf);
@@ -1204,7 +1112,6 @@ void drawDeauthWatch() {
       oled.print("Status: Normal");
     }
 
-    // Footer
     oled.drawLine(0, 54, 127, 54);
     oled.setFont(u8g2_font_4x6_tf);
     oled.drawStr(30, 61, "BACK=Menu");
@@ -1228,7 +1135,6 @@ void drawRogueAPWatch() {
       oled.print("Status: Clean");
     }
 
-    // List rogue APs if found
     if (rogueCount > 0) {
       oled.setFont(u8g2_font_4x6_tf);
       oled.setCursor(0, 42);
@@ -1242,7 +1148,6 @@ void drawRogueAPWatch() {
       }
     }
 
-    // Footer
     oled.drawLine(0, 54, 127, 54);
     oled.setFont(u8g2_font_4x6_tf);
     oled.drawStr(30, 61, "BACK=Menu");
@@ -1250,7 +1155,6 @@ void drawRogueAPWatch() {
 }
 
 void drawBLETrackerWatch() {
-  // Count potential trackers (iBeacon, Eddystone, or devices with no name)
   int trackerCount = 0;
   for (int i = 0; i < bleDeviceCount; i++) {
     if (bleDevices[i].advType > 0 || !bleDevices[i].hasName) {
@@ -1274,7 +1178,6 @@ void drawBLETrackerWatch() {
       oled.print("No trackers found");
     }
 
-    // List potential trackers
     if (trackerCount > 0) {
       oled.setFont(u8g2_font_4x6_tf);
       oled.setCursor(0, 42);
@@ -1293,7 +1196,6 @@ void drawBLETrackerWatch() {
       }
     }
 
-    // Footer
     oled.drawLine(0, 54, 127, 54);
     oled.setFont(u8g2_font_4x6_tf);
     oled.drawStr(30, 61, "BACK=Menu");
@@ -1308,13 +1210,11 @@ void drawAlertSettings() {
 
     oled.setFont(u8g2_font_5x7_tf);
 
-    // Deauth Threshold
     oled.setCursor(0, 22);
     if (alertSettingIndex == 0) oled.print(">");
     oled.setCursor(10, 22);
     oled.printf("Deauth: %d/sec", settings.deauthThreshold);
 
-    // Screen Timeout
     oled.setCursor(0, 32);
     if (alertSettingIndex == 1) oled.print(">");
     oled.setCursor(10, 32);
@@ -1324,18 +1224,14 @@ void drawAlertSettings() {
       oled.printf("Timeout: %ds", settings.screenTimeout);
     }
 
-    // Instructions
     oled.setFont(u8g2_font_4x6_tf);
     oled.setCursor(0, 46);
     oled.print("SHORT=Next LONG=Adjust");
 
-    // Footer
     oled.drawLine(0, 54, 127, 54);
     oled.drawStr(30, 61, "BACK=Save");
   } while (oled.nextPage());
 }
-
-/* ========== Insights Screens ========== */
 
 void drawWhyIsItSlow() {
   if (whySlowView == 0) {
@@ -1411,8 +1307,7 @@ void drawWhyIsItSlow() {
                    (deauthPerSecond > 5 ? 1 : 0) + (apCount > 30 ? 1 : 0);
       oled.printf("%d issue(s) found", issues);
 
-      // Footer
-      oled.drawLine(0, 54, 127, 54);
+        oled.drawLine(0, 54, 127, 54);
       oled.setFont(u8g2_font_4x6_tf);
       oled.drawStr(10, 61, "LONG=Graph BACK=Menu");
     } while (oled.nextPage());
@@ -1423,7 +1318,6 @@ void drawWhyIsItSlow() {
       oled.setFont(u8g2_font_6x10_tf);
       oled.drawStr(10, 10, "RSSI Over Time");
 
-      // Draw graph area
       const uint8_t graphX = 10;
       const uint8_t graphY = 15;
       const uint8_t graphW = 108;
@@ -1437,7 +1331,6 @@ void drawWhyIsItSlow() {
       oled.drawStr(0, graphY + 5, "-40");
       oled.drawStr(0, graphY + graphH - 2, "-100");
 
-      // Draw horizontal grid lines
       for (int i = 1; i < 3; i++) {
         uint8_t y = graphY + (graphH * i / 3);
         for (uint8_t x = graphX; x < graphX + graphW; x += 4) {
@@ -1460,12 +1353,10 @@ void drawWhyIsItSlow() {
           uint8_t y1 = graphY + graphH - ((rssi1 + 100) * graphH / 60);
           uint8_t y2 = graphY + graphH - ((rssi2 + 100) * graphH / 60);
 
-          // Map sample index to X coordinates
-          uint8_t x1 = graphX + (i - 1) * graphW / RSSI_HISTORY_SIZE;
+                    uint8_t x1 = graphX + (i - 1) * graphW / RSSI_HISTORY_SIZE;
           uint8_t x2 = graphX + i * graphW / RSSI_HISTORY_SIZE;
 
-          // Draw line between points
-          oled.drawLine(x1, y1, x2, y2);
+                    oled.drawLine(x1, y1, x2, y2);
         }
       }
 
@@ -1605,7 +1496,6 @@ void drawEnvironmentChange() {
       oled.printf("Age: %lus ago", elapsed);
     }
 
-    // Footer
     oled.drawLine(0, 54, 127, 54);
     oled.setFont(u8g2_font_4x6_tf);
     if (baseline.saved) {
@@ -1662,7 +1552,6 @@ void drawQuickSnapshot() {
     oled.setCursor(0, 49);
     oled.printf("Busiest: CH%d (%d)", busiestCh, maxLoad);
 
-    // Footer
     oled.drawLine(0, 54, 127, 54);
     oled.setFont(u8g2_font_4x6_tf);
     oled.drawStr(30, 61, "BACK=Menu");
@@ -1727,13 +1616,10 @@ void drawChannelScorecard() {
       }
     }
 
-    // Footer
     oled.drawLine(0, 57, 127, 57);
     oled.drawStr(30, 63, "BACK=Menu");
   } while (oled.nextPage());
 }
-
-/* ========== History Screens ========== */
 
 void drawEventLog() {
   oled.firstPage();
@@ -1756,7 +1642,6 @@ void drawEventLog() {
         LogEvent* ev = &eventLog[idx];
         uint8_t y = 18 + (i * 7);
 
-        // Highlight cursor
         if (i == eventCursor) {
           oled.drawBox(0, y - 6, 128, 7);
           oled.setDrawColor(0);
@@ -1788,7 +1673,6 @@ void drawEventLog() {
       }
     }
 
-    // Footer
     oled.drawLine(0, 54, 127, 54);
     oled.setFont(u8g2_font_4x6_tf);
     oled.drawStr(30, 61, "BACK=Menu");
@@ -1847,14 +1731,11 @@ void drawBaselineCompare() {
       oled.printf("Baseline: %lus ago", elapsed);
     }
 
-    // Footer
     oled.drawLine(0, 54, 127, 54);
     oled.setFont(u8g2_font_4x6_tf);
     oled.drawStr(30, 61, "BACK=Menu");
   } while (oled.nextPage());
 }
-
-/* ========== System Screens ========== */
 
 void drawBatteryPower() {
   oled.firstPage();
@@ -1883,7 +1764,6 @@ void drawBatteryPower() {
     oled.setCursor(0, 52);
     oled.printf("Flash: %d MB", ESP.getFlashChipSize() / (1024 * 1024));
 
-    // Footer
     oled.drawLine(0, 54, 127, 54);
     oled.setFont(u8g2_font_4x6_tf);
     oled.drawStr(30, 61, "BACK=Menu");
@@ -1914,12 +1794,10 @@ void drawDisplaySettings() {
       oled.printf("Sleep: %ds", settings.screenTimeout);
     }
 
-    // Instructions
     oled.setFont(u8g2_font_4x6_tf);
     oled.setCursor(0, 46);
     oled.print("SHORT=Next LONG=Change");
 
-    // Footer
     oled.drawLine(0, 54, 127, 54);
     oled.drawStr(30, 61, "BACK=Save");
   } while (oled.nextPage());
@@ -1946,12 +1824,10 @@ void drawRadioControl() {
     oled.setCursor(0, 46);
     oled.print("1        6        11  13");
 
-    // Instructions
     oled.setFont(u8g2_font_5x7_tf);
     oled.setCursor(0, 52);
     oled.print("SHORT=Next LONG=Prev");
 
-    // Footer
     oled.drawLine(0, 54, 127, 54);
     oled.setFont(u8g2_font_4x6_tf);
     oled.drawStr(30, 61, "BACK=Menu");
@@ -1975,8 +1851,6 @@ void drawAbout() {
     oled.drawStr(25, 63, "BACK = Return");
   } while (oled.nextPage());
 }
-
-/* ========== Utility Screens ========== */
 
 void drawHiddenSSID() {
   oled.firstPage();
@@ -2109,7 +1983,6 @@ void drawExport() {
     oled.setCursor(0, 46);
     oled.printf("Events: %d", eventCount);
 
-    // Footer
     oled.drawLine(0, 54, 127, 54);
     oled.setFont(u8g2_font_4x6_tf);
     oled.drawStr(30, 61, "BACK=Menu");
@@ -2144,14 +2017,11 @@ void drawPowerMode() {
       oled.setFont(u8g2_font_5x7_tf);
     }
 
-    // Footer
     oled.drawLine(0, 54, 127, 54);
     oled.setFont(u8g2_font_4x6_tf);
     oled.drawStr(0, 61, "SHORT=Change BACK=Save");
   } while (oled.nextPage());
 }
-
-/* ========== Placeholder Helper ========== */
 
 void drawPlaceholder(const char* title, const char* subtitle) {
   oled.firstPage();

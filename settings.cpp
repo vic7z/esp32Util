@@ -1,10 +1,8 @@
 #include "settings.h"
 
-/* ========== Settings Variables ========== */
 uint8_t settingsCursor = 0;
 const uint8_t SETTINGS_COUNT = 5;
 
-/* ========== Settings Management ========== */
 void loadSettings() {
   prefs.begin("wifianalyzer", false);
   settings.scanSpeed = prefs.getUChar("scanSpeed", 1);

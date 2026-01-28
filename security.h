@@ -3,7 +3,6 @@
 
 #include "config.h"
 
-/* ========== Rogue AP Detection ========== */
 extern RogueAP rogueList[MAX_ROGUE_APS];
 extern uint8_t rogueCount;
 

@@ -1,17 +1,5 @@
-/*
- * ESP32 Pocket RF Tool - Modular Version
- * ESP32-C3/S3 Zero + 0.96" OLED + RGB LED
- *
- * Hierarchical menu system for Wi-Fi & BLE analysis
- * All core functionality moved to separate .h/.cpp files
- *
- * Created from refactored codebase - Phase 1 Complete
- */
-
-// Core Arduino libraries
+// ESP32 Pocket RF Tool - WiFi & BLE Analyzer
 #include <Arduino.h>
-
-// Modular header files
 #include "config.h"
 #include "screens.h"
 #include "screens_draw.h"
@@ -27,35 +15,29 @@
 #include "power.h"
 #include "device_monitor.h"
 
-/* ========== Global Hardware Objects ========== */
 U8G2_SSD1306_128X64_NONAME_1_HW_I2C oled(U8G2_R0, U8X8_PIN_NONE, 5, 4);
 Adafruit_NeoPixel rgb(RGB_LED_COUNT, RGB_LED_PIN, NEO_GRB + NEO_KHZ800);
 Preferences prefs;
 
-/* ========== Global State ========== */
-Settings settings = {1, -70, 50, true, false, 10, 60};  // scanSpeed, rssiThreshold, rgbBrightness, autoRefresh, csvLogging, deauthThreshold, screenTimeout
+Settings settings = {1, -70, 50, true, false, 10, 60};
 Screen currentScreen = SCREEN_MENU;
 
-/* ========== Auto Mode State ========== */
-uint8_t autoModeView = 0; // 0=summary, 1=top APs, 2=top BLE
+uint8_t autoModeView = 0;
 uint32_t lastAutoWifiScan = 0;
 uint32_t lastAutoBLEScan = 0;
 uint16_t autoTotalAPs = 0;
 uint16_t autoTotalBLE = 0;
 
-/* ========== Insights State ========== */
-uint8_t whySlowView = 0; // 0=analysis, 1=RSSI graph
+uint8_t whySlowView = 0;
 RSSIHistory rssiHistory[MAX_TRACKED_APS];
 uint32_t lastRSSISample = 0;
 
-/* ========== RF Health State ========== */
-uint8_t rfHealthView = 0; // 0=stats, 1=RSSI graph
+uint8_t rfHealthView = 0;
 int8_t rfHealthRSSIHistory[60]; // 60 samples of avg RSSI
 uint8_t rfHealthHistoryIndex = 0;
 int8_t rfHealthMinRSSI = 0;
 int8_t rfHealthMaxRSSI = -100;
 
-/* ========== Walk Test State ========== */
 #define WALK_HISTORY_SIZE 60
 int8_t walkRSSIHistory[WALK_HISTORY_SIZE];
 uint8_t walkHistoryIndex = 0;
@@ -67,9 +49,8 @@ uint8_t walkTargetBSSID[6];  // Store BSSID instead of index
 char walkTargetSSID[33];     // Store SSID for display
 String walkTargetBLEAddr = "";
 bool walkTestActive = false;
-uint8_t walkTestView = 0; // 0=stats, 1=graph
+uint8_t walkTestView = 0;
 
-/* ========== Event Log & Baseline ========== */
 LogEvent eventLog[MAX_EVENTS];
 uint8_t eventCount = 0;
 uint8_t eventCursor = 0;
@@ -81,30 +62,24 @@ uint32_t lastBaselineUpdate = 0;
 bool prevAttackActive = false;
 uint8_t prevRogueCount = 0;
 
-/* ========== Device Monitor ========== */
 MonitoredDevice monitoredDevices[MAX_MONITORED_DEVICES];
 uint8_t monitoredDeviceCount = 0;
 uint8_t deviceCursor = 0;
 uint8_t deviceScroll = 0;
 uint8_t deviceSelectedIndex = 0;
 
-/* ========== Display Settings ========== */
-uint8_t displaySettingCursor = 0; // 0=RGB Brightness, 1=Sleep Timeout
+uint8_t displaySettingCursor = 0;
 
-/* ========== Button State ========== */
-// Action button state
 bool lastReading = HIGH;
 unsigned long lastDebounce = 0;
 unsigned long pressStart = 0;
 
-// Back button state
 bool lastBackReading = HIGH;
 unsigned long lastBackDebounce = 0;
 bool backPressed = false;
 unsigned long backPressStart = 0;
 unsigned long lastBackFired = 0;
 
-/* ========== Button Handler ========== */
 ButtonEvent updateButton() {
   unsigned long now = millis();
 
@@ -117,29 +92,24 @@ ButtonEvent updateButton() {
 
   if (now - lastBackDebounce >= DEBOUNCE_MS) {
     if (backBtn == LOW && !backPressed) {
-      // Button pressed down - mark as pressed and start timing
       backPressed = true;
       backPressStart = now;
     } else if (backBtn == HIGH && backPressed && (now - lastBackFired > 150)) {
-      // Button released - check if long press (for sleep)
       unsigned long backHeld = now - backPressStart;
       backPressed = false;
       backPressStart = 0;
       lastBackFired = now;
 
       if (backHeld >= 1500) {
-        // Long press BACK = Sleep
         Serial.println("[BTN] BACK LONG - SLEEP");
         return BTN_BACK_LONG;
       } else {
-        // Normal BACK press
         Serial.println("[BTN] BACK");
         return BTN_BACK;
       }
     }
   }
 
-  // Check ACTION button
   bool r = digitalRead(BTN_ACTION);
   if (r != lastReading) {
     lastDebounce = now;
@@ -147,22 +117,18 @@ ButtonEvent updateButton() {
   }
   if (now - lastDebounce < DEBOUNCE_MS) return BTN_NONE;
 
-  // Start press timing
   if (r == LOW && pressStart == 0) {
     pressStart = now;
   }
 
-  // Button released - fire event based on hold duration
   if (r == HIGH && pressStart) {
     unsigned long held = now - pressStart;
     pressStart = 0;
 
     if (held >= LONG_PRESS_MS) {
-      // Long hold (700ms) = Select/Enter
       Serial.printf("[BTN] LONG (held: %lums)\n", held);
       return BTN_LONG;
     }
-    // Short press = Scroll/Navigate
     Serial.printf("[BTN] SHORT (held: %lums)\n", held);
     return BTN_SHORT;
   }
@@ -170,14 +136,12 @@ ButtonEvent updateButton() {
   return BTN_NONE;
 }
 
-/* ========== Setup ========== */
 void setup() {
   Serial.begin(115200);
   pinMode(BTN_ACTION, INPUT_PULLUP);
   pinMode(BTN_BACK_PIN, INPUT_PULLUP);
   delay(100);
 
-  // Load settings from NVS
   loadSettings();
 
   if (RGB_ENABLED) {
@@ -188,7 +152,6 @@ void setup() {
   oled.begin();
   oled.setContrast(128);
 
-  // Show startup message
   oled.firstPage();
   do {
     oled.setFont(u8g2_font_6x10_tf);
@@ -199,10 +162,8 @@ void setup() {
 
   delay(100);
 
-  // Initialize Wi-Fi subsystem
   initWiFi();
 
-  // Initialize BLE at startup (takes ~2 seconds)
   Serial.println("[INIT] Initializing BLE...");
   initBLE();
   Serial.println("[INIT] BLE ready");
@@ -213,36 +174,28 @@ void setup() {
   if (RGB_ENABLED) setRGB(RGB_GREEN);
 
   Serial.println("ESP32-C3 Wi-Fi & BLE Analyzer Ready");
-  Serial.println("Features: Wi-Fi 2.4GHz + BLE Scanner");
-  Serial.println("CSV Format: timestamp,channel,rssi,type");
 }
 
-/* ========== Main Loop ========== */
 void loop() {
   ButtonEvent ev = updateButton();
 
-  // Long press BACK button to enter DEEP SLEEP
-  // Device will only wake up when reset button is pressed
   if (ev == BTN_BACK_LONG) {
-    enterDeepSleep();  // This never returns - device resets on wake
+    enterDeepSleep();
     return;
   }
 
-  // Screen timeout management - LIGHT sleep (wake with button press)
   if (ev != BTN_NONE) {
     lastActivity = millis();
     if (screenSleeping) {
-      // Wake up from light sleep
       screenSleeping = false;
-      oled.setPowerSave(0);  // Turn on OLED
-      setRGB(RGB_GREEN);     // Turn on LED
-      esp_wifi_start();      // Restart WiFi
+      oled.setPowerSave(0);
+      setRGB(RGB_GREEN);
+      esp_wifi_start();
       Serial.println("[WAKE] Light sleep wake - button pressed");
-      return;  // Don't process this button press, just wake up
+      return;
     }
   }
 
-  // Don't sleep during active scanning screens
   bool activelyScanning = (currentScreen == SCREEN_AUTO_WATCH ||
                             currentScreen == SCREEN_MONITOR ||
                             currentScreen == SCREEN_ANALYZER ||
@@ -258,19 +211,17 @@ void loop() {
 
   if (settings.screenTimeout > 0 && !screenSleeping && !activelyScanning) {
     if (millis() - lastActivity > (settings.screenTimeout * 1000UL)) {
-      // Enter LIGHT sleep on timeout - wake with any button press
       screenSleeping = true;
-      oled.setPowerSave(1);  // Turn off OLED
-      setRGB(RGB_OFF);       // Turn off LED
-      stopAllWifi();         // Stop WiFi
-      stopBLEScan();         // Stop BLE
-      esp_wifi_stop();       // Stop WiFi modem for power savings
+      oled.setPowerSave(1);
+      setRGB(RGB_OFF);
+      stopAllWifi();
+      stopBLEScan();
+      esp_wifi_stop();
       Serial.println("[SLEEP] Light sleep - press any button to wake");
       return;
     }
   }
 
-  // Deauth detection (using configurable threshold)
   if (millis() - lastDeauthCheck > 1000) {
     deauthPerSecond = pktDeauth - lastDeauthCount;
     lastDeauthCount = pktDeauth;
@@ -283,12 +234,9 @@ void loop() {
     }
   }
 
-  // Signal alert
   signalAlert = (avgRssi > settings.rssiThreshold);
-
   updateRGBStatus();
 
-  /* ----- MAIN MENU ----- */
   if (currentScreen == SCREEN_MENU) {
     if (ev == BTN_SHORT) {
       mainMenuIndex = (mainMenuIndex + 1) % MAIN_MENU_SIZE;
@@ -297,7 +245,7 @@ void loop() {
 
     if (ev == BTN_LONG) {
       switch (mainMenuIndex) {
-        case 0: // Auto Watch
+        case 0:
           currentScreen = SCREEN_AUTO_WATCH;
           autoModeView = 0;
           lastAutoWifiScan = 0;
@@ -310,31 +258,31 @@ void loop() {
           startBLEScan();
           drawAutoWatch();
           break;
-        case 1: // RF Health
+        case 1:
           currentScreen = SCREEN_RF_HEALTH;
           stopAllWifi();
           break;
-        case 2: // Live Monitor
+        case 2:
           currentScreen = SCREEN_MONITOR;
           frozen = false;
           currentChannel = 1;
           resetLiveStats();
           enterSnifferMode(currentChannel);
           break;
-        case 3: // Channel Analyzer
+        case 3:
           currentScreen = SCREEN_ANALYZER;
           selectedChannel = 1;
           resetAnalyzer();
           enterSnifferMode(1);
           break;
-        case 4: // Device Monitor
+        case 4:
           currentScreen = SCREEN_DEVICE_MONITOR;
           deviceCursor = 0;
           deviceScroll = 0;
-          startDeviceMonitorSniffer();  // Start sniffing for WiFi clients
+          startDeviceMonitorSniffer();
           startBLEScan();
           break;
-        case 5: // AP Scanner (direct to AP List)
+        case 5:
           currentScreen = SCREEN_AP_LIST;
           apCursor = apScroll = 0;
           apSortedOnce = false;
@@ -342,32 +290,32 @@ void loop() {
           startApScan();
           lastScan = millis();
           break;
-        case 6: // BLE Monitor (direct to BLE Scan)
+        case 6:
           currentScreen = SCREEN_BLE_SCAN;
           bleCursor = bleScroll = 0;
           stopAllWifi();
           startBLEScan();
           lastScan = millis();
           break;
-        case 7: // Security
+        case 7:
           currentScreen = SCREEN_SECURITY_MENU;
           securityMenuIndex = 0;
           stopAllWifi();
           drawSecurityMenu();
           break;
-        case 8: // Insights
+        case 8:
           currentScreen = SCREEN_INSIGHTS_MENU;
           insightsMenuIndex = 0;
           stopAllWifi();
           drawInsightsMenu();
           break;
-        case 9: // History
+        case 9:
           currentScreen = SCREEN_HISTORY_MENU;
           historyMenuIndex = 0;
           stopAllWifi();
           drawHistoryMenu();
           break;
-        case 10: // System
+        case 10:
           currentScreen = SCREEN_SYSTEM_MENU;
           systemMenuIndex = 0;
           stopAllWifi();
@@ -379,8 +327,6 @@ void loop() {
     return;
   }
 
-
-  /* ----- SECURITY MENU ----- */
   if (currentScreen == SCREEN_SECURITY_MENU) {
     if (ev == BTN_SHORT) {
       securityMenuIndex = (securityMenuIndex + 1) % SECURITY_MENU_SIZE;
@@ -388,21 +334,21 @@ void loop() {
     }
     if (ev == BTN_LONG) {
       switch (securityMenuIndex) {
-        case 0: // Deauth Watch
+        case 0:
           currentScreen = SCREEN_DEAUTH_WATCH;
           currentChannel = 1;
           enterSnifferMode(currentChannel);
           break;
-        case 1: // Rogue AP Watch
+        case 1:
           currentScreen = SCREEN_ROGUE_AP_WATCH;
           enterScanMode();
           startApScan();
           lastScan = millis();
           break;
-        case 2: // BLE Tracker Watch
+        case 2:
           currentScreen = SCREEN_BLE_TRACKER_WATCH;
           break;
-        case 3: // Alert Settings
+        case 3:
           currentScreen = SCREEN_ALERT_SETTINGS;
           break;
       }
@@ -415,51 +361,42 @@ void loop() {
     return;
   }
 
-  /* ----- INSIGHTS MENU ----- */
   if (currentScreen == SCREEN_INSIGHTS_MENU) {
     handleInsightsMenu(ev);
     delay(40);
     return;
   }
 
-  /* ----- HISTORY MENU ----- */
   if (currentScreen == SCREEN_HISTORY_MENU) {
     handleHistoryMenu(ev);
     delay(40);
     return;
   }
 
-  /* ----- SYSTEM MENU ----- */
   if (currentScreen == SCREEN_SYSTEM_MENU) {
     handleSystemMenu(ev);
     delay(40);
     return;
   }
 
-  /* ----- AUTO WATCH ----- */
   if (currentScreen == SCREEN_AUTO_WATCH) {
     handleAutoWatch(ev);
     delay(40);
     return;
   }
 
-
-  /* ----- RF HEALTH ----- */
   if (currentScreen == SCREEN_RF_HEALTH) {
-    // Toggle graph view on long press
     if (ev == BTN_LONG) {
       rfHealthView = (rfHealthView + 1) % 2;
     }
 
-    // Scan periodically for fresh data
     if (millis() - lastScan > 2000) {
       enterScanMode();
       startApScan();
-      delay(1500);  // Wait for scan to complete (WiFi scans take ~1-2 seconds)
+      delay(1500);
       fetchApResults(false);
-      updateBLEScan(); // Update BLE devices
+      updateBLEScan();
 
-      // Calculate and store average RSSI
       if (apCount > 0) {
         long rssiSum = 0;
         for (int i = 0; i < apCount; i++) {
@@ -467,11 +404,9 @@ void loop() {
         }
         int8_t avgRSSI = rssiSum / apCount;
 
-        // Add to history
         rfHealthRSSIHistory[rfHealthHistoryIndex] = avgRSSI;
         rfHealthHistoryIndex = (rfHealthHistoryIndex + 1) % 60;
 
-        // Update min/max
         if (avgRSSI < rfHealthMinRSSI || rfHealthMinRSSI == 0) rfHealthMinRSSI = avgRSSI;
         if (avgRSSI > rfHealthMaxRSSI) rfHealthMaxRSSI = avgRSSI;
       }
@@ -483,7 +418,7 @@ void loop() {
       currentScreen = SCREEN_MENU;
       stopAllWifi();
       stopBLEScan();
-      rfHealthView = 0; // Reset view
+      rfHealthView = 0;
       drawMenu();
       return;
     }
@@ -493,41 +428,33 @@ void loop() {
     return;
   }
 
-  /* ----- PLACEHOLDER SCREENS WITH BACK BUTTON ----- */
-  /* Main menu direct screens */
   if (currentScreen == SCREEN_DEVICE_MONITOR) {
     handleDeviceMonitor(ev);
     delay(40);
     return;
   }
 
-  /* Device Monitor detail */
   if (currentScreen == SCREEN_DEVICE_DETAIL) {
     handleDeviceDetail(ev);
     delay(40);
     return;
   }
 
-  /* ----- AP WALK TEST ----- */
   if (currentScreen == SCREEN_AP_WALK_TEST) {
     handleAPWalkTest(ev);
     delay(40);
     return;
   }
 
-  /* ----- BLE WALK TEST ----- */
   if (currentScreen == SCREEN_BLE_WALK_TEST) {
     handleBLEWalkTest(ev);
     delay(40);
     return;
   }
 
-  /* Security submenu screens */
   if (currentScreen == SCREEN_BLE_TRACKER_WATCH) {
-    // Update BLE scan
     updateBLEScan();
 
-    // Count potential trackers
     int trackerCount = 0;
     for (int i = 0; i < bleDeviceCount; i++) {
       if (bleDevices[i].advType > 0 || !bleDevices[i].hasName) {
@@ -535,11 +462,10 @@ void loop() {
       }
     }
 
-    // Update alert level based on tracker detection
     if (trackerCount > 0) {
-      alertLevel = 1;  // Warning - orange blink
+      alertLevel = 1;
     } else {
-      alertLevel = 0;  // Normal - green
+      alertLevel = 0;
     }
     updateAlertLED();
 
@@ -548,33 +474,30 @@ void loop() {
       currentScreen = SCREEN_SECURITY_MENU;
       stopBLEScan();
       drawSecurityMenu();
-      alertLevel = 0;  // Reset to normal
+      alertLevel = 0;
       setRGB(RGB_GREEN);
     }
     delay(40);
     return;
   }
 
-  /* ----- ALERT SETTINGS ----- */
   if (currentScreen == SCREEN_ALERT_SETTINGS) {
     static uint8_t settingIndex = 0;
 
     if (ev == BTN_SHORT) {
-      // Navigate between settings
       settingIndex = (settingIndex + 1) % 2;
     } else if (ev == BTN_LONG) {
-      // Adjust selected setting
       switch (settingIndex) {
-        case 0:  // Deauth threshold
-          settings.deauthThreshold = (settings.deauthThreshold + 5) % 55;  // 0, 5, 10, ... 50
+        case 0:
+          settings.deauthThreshold = (settings.deauthThreshold + 5) % 55;
           if (settings.deauthThreshold == 0) settings.deauthThreshold = 5;
           break;
-        case 1:  // Screen timeout
+        case 1:
           if (settings.screenTimeout == 0) settings.screenTimeout = 30;
           else if (settings.screenTimeout == 30) settings.screenTimeout = 60;
           else if (settings.screenTimeout == 60) settings.screenTimeout = 120;
           else if (settings.screenTimeout == 120) settings.screenTimeout = 300;
-          else settings.screenTimeout = 0;  // Never
+          else settings.screenTimeout = 0;
           break;
       }
     }
@@ -582,7 +505,7 @@ void loop() {
     drawAlertSettings();
 
     if (ev == BTN_BACK) {
-      saveSettings();  // Save settings on exit
+      saveSettings();
       currentScreen = SCREEN_SECURITY_MENU;
       drawSecurityMenu();
     }
@@ -590,7 +513,6 @@ void loop() {
     return;
   }
 
-  /* Insights submenu screens */
   if (currentScreen == SCREEN_WHY_IS_IT_SLOW) {
     handleWhyIsItSlow(ev);
     delay(40);
@@ -621,7 +543,6 @@ void loop() {
     return;
   }
 
-  /* History submenu screens */
   if (currentScreen == SCREEN_EVENT_LOG) {
     handleEventLog(ev);
     delay(40);
@@ -640,9 +561,7 @@ void loop() {
     return;
   }
 
-  /* Display Settings - interactive */
   if (currentScreen == SCREEN_DISPLAY_SETTINGS) {
-    // Adjust RGB brightness
     if (ev == BTN_SHORT) {
       settings.rgbBrightness = min(100, settings.rgbBrightness + 10);
       rgb.setBrightness((settings.rgbBrightness * 255) / 100);
@@ -656,7 +575,7 @@ void loop() {
     drawDisplaySettings();
 
     if (ev == BTN_BACK) {
-      saveSettings();  // Save on exit
+      saveSettings();
       currentScreen = SCREEN_SYSTEM_MENU;
       drawSystemMenu();
     }
@@ -664,9 +583,7 @@ void loop() {
     return;
   }
 
-  /* Radio Control - interactive */
   if (currentScreen == SCREEN_RADIO_CONTROL) {
-    // Change channel
     if (ev == BTN_SHORT) {
       currentChannel = (currentChannel % MAX_CHANNEL) + 1;
     } else if (ev == BTN_LONG) {
@@ -683,7 +600,6 @@ void loop() {
     return;
   }
 
-  /* System submenu screens */
   if (currentScreen == SCREEN_BATTERY_POWER || currentScreen == SCREEN_ABOUT) {
     if (currentScreen == SCREEN_BATTERY_POWER) drawBatteryPower();
     else drawAbout();
@@ -702,30 +618,25 @@ void loop() {
     return;
   }
 
-  /* ----- DEAUTH WATCH ----- */
   if (currentScreen == SCREEN_DEAUTH_WATCH) {
-    // Channel hopping - scan all channels for deauth packets
     static uint32_t lastChannelHop = 0;
-    if (millis() - lastChannelHop > 500) {  // Hop every 500ms
+    if (millis() - lastChannelHop > 500) {
       currentChannel = (currentChannel % MAX_CHANNEL) + 1;
       enterSnifferMode(currentChannel);
       lastChannelHop = millis();
     }
 
-    // Update total deauth counter
     totalDeauthDetected = pktDeauth;
 
-    // Update alert level based on attack status
     if (attackActive) {
-      alertLevel = 2;  // Critical - red blink
+      alertLevel = 2;
     } else if (deauthPerSecond > 0) {
-      alertLevel = 1;  // Warning - orange blink
+      alertLevel = 1;
     } else {
-      alertLevel = 0;  // Normal - green
+      alertLevel = 0;
     }
     updateAlertLED();
 
-    // Log attack events
     if (attackActive && !prevAttackActive) {
       char msg[40];
       snprintf(msg, 40, "Deauth attack! Ch%d %lu/sec", currentChannel, deauthPerSecond);
@@ -738,21 +649,19 @@ void loop() {
       currentScreen = SCREEN_SECURITY_MENU;
       stopAllWifi();
       drawSecurityMenu();
-      alertLevel = 0;  // Reset to normal
+      alertLevel = 0;
       setRGB(RGB_GREEN);
     }
     delay(40);
     return;
   }
 
-  /* ----- ROGUE AP WATCH ----- */
   if (currentScreen == SCREEN_ROGUE_AP_WATCH) {
     if (millis() - lastScan > 3000) {
       fetchApResults(false);
       uint8_t oldRogueCount = rogueCount;
-      detectRogueAPs();  // Check for APs with same SSID but different BSSID
+      detectRogueAPs();
 
-      // Log new rogue detections
       if (rogueCount > prevRogueCount) {
         for (int i = prevRogueCount; i < rogueCount; i++) {
           char msg[40];
@@ -766,11 +675,10 @@ void loop() {
       lastScan = millis();
     }
 
-    // Update alert level based on rogue AP detection
     if (rogueCount > 0) {
-      alertLevel = 2;  // Critical - red blink
+      alertLevel = 2;
     } else {
-      alertLevel = 0;  // Normal - green
+      alertLevel = 0;
     }
     updateAlertLED();
 
@@ -779,16 +687,14 @@ void loop() {
       currentScreen = SCREEN_SECURITY_MENU;
       stopAllWifi();
       drawSecurityMenu();
-      alertLevel = 0;  // Reset to normal
+      alertLevel = 0;
       setRGB(RGB_GREEN);
     }
     delay(40);
     return;
   }
 
-  /* ----- AP LIST ----- */
   if (currentScreen == SCREEN_AP_LIST) {
-    // Handle buttons FIRST for better responsiveness
     if (ev == BTN_SHORT && apCount > 0) {
       if (apScroll + apCursor + 1 < apCount) {
         if (apCursor < AP_VISIBLE - 1) apCursor++;
@@ -811,7 +717,6 @@ void loop() {
       return;
     }
 
-    // Scan operations after button handling
     if (millis() - lastScan > 2000) {
       fetchApResults(false);
       startApScan();
@@ -823,13 +728,11 @@ void loop() {
     return;
   }
 
-  /* ----- AP DETAIL ----- */
   if (currentScreen == SCREEN_AP_DETAIL) {
     if (ev == BTN_SHORT) {
       currentScreen = SCREEN_AP_LIST;
     }
     if (ev == BTN_LONG) {
-      // Start Walk Test for this AP - save BSSID and SSID
       if (apSelectedIndex < apCount) {
         memcpy(walkTargetBSSID, apList[apSelectedIndex].bssid, 6);
         strncpy(walkTargetSSID, (char*)apList[apSelectedIndex].ssid, 32);
@@ -843,7 +746,7 @@ void loop() {
         walkTestActive = true;
         memset(walkRSSIHistory, 0, sizeof(walkRSSIHistory));
         currentScreen = SCREEN_AP_WALK_TEST;
-        lastScan = 0; // Force immediate scan
+        lastScan = 0;
       }
     }
     if (ev == BTN_BACK) {
@@ -855,7 +758,6 @@ void loop() {
     return;
   }
 
-  /* ----- AP COMPARE ----- */
   if (currentScreen == SCREEN_COMPARE) {
     if (ev == BTN_SHORT) {
       apCompareB = (apCompareB + 1) % apCount;
@@ -873,7 +775,6 @@ void loop() {
     return;
   }
 
-  /* ----- HIDDEN SSID ----- */
   if (currentScreen == SCREEN_HIDDEN_SSID) {
     static uint32_t lastHop = 0;
     if (millis() - lastHop > 200) {
@@ -903,8 +804,6 @@ void loop() {
     return;
   }
 
-
-  /* ----- SESSION STATS ----- */
   if (currentScreen == SCREEN_STATS) {
     if (ev == BTN_SHORT) {
       currentScreen = SCREEN_MENU;
@@ -920,9 +819,6 @@ void loop() {
     return;
   }
 
-
-
-  /* ----- LIVE MONITOR ----- */
   if (currentScreen == SCREEN_MONITOR) {
     if (ev == BTN_SHORT && !frozen) {
       currentChannel = currentChannel % MAX_CHANNEL + 1;
@@ -964,21 +860,18 @@ void loop() {
     return;
   }
 
-  /* ----- CHANNEL ANALYZER ----- */
   if (currentScreen == SCREEN_ANALYZER) {
     handleAnalyzer(ev);
     delay(40);
     return;
   }
 
-  /* ----- BLE SCANNER ----- */
   if (currentScreen == SCREEN_BLE_SCAN) {
     handleBLEScan(ev);
     delay(40);
     return;
   }
 
-  /* ----- BLE DETAIL ----- */
   if (currentScreen == SCREEN_BLE_DETAIL) {
     if (ev == BTN_SHORT) {
       currentScreen = SCREEN_BLE_SCAN;
@@ -986,7 +879,6 @@ void loop() {
     }
 
     if (ev == BTN_LONG) {
-      // Start Walk Test for this BLE device - save address
       if (bleSelectedIndex < bleDeviceCount) {
         walkTargetBLEAddr = bleDevices[bleSelectedIndex].address;
 
@@ -998,8 +890,8 @@ void loop() {
         walkTestActive = true;
         memset(walkRSSIHistory, 0, sizeof(walkRSSIHistory));
         currentScreen = SCREEN_BLE_WALK_TEST;
-        startBLEScan(); // Ensure BLE scanning is active
-        lastScan = 0; // Force immediate update
+        startBLEScan();
+        lastScan = 0;
       }
     }
 

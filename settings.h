@@ -3,11 +3,9 @@
 
 #include "config.h"
 
-/* ========== Settings Management ========== */
 void loadSettings();
 void saveSettings();
 
-/* ========== Settings Cursor ========== */
 extern uint8_t settingsCursor;
 extern const uint8_t SETTINGS_COUNT;
 
