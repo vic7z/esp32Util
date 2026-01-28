@@ -348,7 +348,6 @@ Connect at **115200 baud** to view:
 - Added RSSI graph to "Why Is It Slow"
 - NeoPixel sleep control
 
-See CLAUDE.md for complete version history.
 
 
 
