@@ -1,22 +1,22 @@
 # ESP32 WiFi/BLE Utility
 
-A comprehensive WiFi and Bluetooth LE analyzer and security monitor for ESP32-C3.
+A WiFi and Bluetooth LE analyzer and security monitor for ESP32 microcontrollers.
 
-## Hardware Requirements
+## Hardware Support
 
-- **Board**: ESP32-C3 (QFN32) revision v0.4 or higher
-- **Display**: 128x64 OLED (I2C)
-- **LED**: WS2812B NeoPixel RGB LED
-- **Buttons**: 2x tactile buttons
+This firmware is designed to run on **ESP32**, **ESP32-S2**, and **ESP32-C3** boards.
 
-### Pin Configuration
+**Reference Setup (Waveshare ESP32-C3-Zero):**
+The default configuration is set for a Waveshare ESP32-C3-Zero with an I2C OLED and two buttons.
 
-| Component | GPIO Pin |
-|-----------|----------|
-| Action Button (Select/Navigate) | GPIO 2 |
-| Back Button | GPIO 3 |
-| RGB LED (NeoPixel) | GPIO 10 |
-| OLED Display (I2C) | Default SDA/SCL |
+| Component | Default Pin (C3 Zero) | Notes |
+|-----------|-----------------------|-------|
+| Action Button (Select/Navigate) | GPIO 2 | Pull-up required |
+| Back Button (Cancel/Sleep) | GPIO 3 | Pull-up required |
+| OLED SDA | GPIO 4 | I2C Data |
+| OLED SCL | GPIO 5 | I2C Clock |
+| RGB LED (NeoPixel) | GPIO 10 | **Note:** Onboard LED is GPIO 8 |
+
 
 ## Features
 
@@ -195,7 +195,7 @@ Firmware information.
 
 ### Back Button (GPIO 3)
 - **SHORT Press**: Return to previous screen / Cancel
-- **LONG Press** (>1.5s): **Manual sleep** - turns off display, LED, and WiFi/BLE modems
+- **LONG Press** (>1.5s): **Deep Sleep** - turns off display, LED, and WiFi/BLE modems. Requires **RESET** to wake.
 
 ## LED Status Indicators
 
@@ -227,19 +227,14 @@ Firmware information.
   - Maximum power savings
 
 ### Wake Up
-- Press any button to wake
-- WiFi/BLE modems restart automatically
-- Returns to last active screen
+- **From Auto Sleep:** Press any button.
+- **From Deep Sleep:** Press the RESET button on the board.
 
 ## Technical Specifications
 
 - **WiFi**: 2.4GHz, Channels 1-13
 - **BLE**: Bluetooth 5.0 LE
-- **CPU**: Single core, 160MHz
-- **Flash**: 4MB
-- **Firmware Size**: ~1.08MB (34% of 3MB partition)
-- **RAM Usage**: ~46KB (14% of 327KB)
-- **Compile Board**: `esp32:esp32:esp32c3:PartitionScheme=huge_app`
+- **Partition Scheme**: Huge APP (3MB No OTA/1MB SPIFFS)
 
 ## Data Limits
 
@@ -272,25 +267,6 @@ arduino-cli upload -p COM7 --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app e
 ```
 *Note: Replace COM7 with your actual port*
 
-## Serial Monitor Output
-
-Connect at **115200 baud** to view:
-- Boot messages
-- Scan results
-- Event logs
-- Exported data (from History → Export Data)
-- Debug information
-
-## Tips & Tricks
-
-1. **Finding Hidden Networks**: Use AP Scanner to detect hidden SSIDs by BSSID
-2. **Optimizing Your WiFi**: Use Channel Recommendation to find the best channel
-3. **Detecting Interference**: Use Environment Change to establish a baseline, then check later for changes
-4. **Walk Tests**: Use AP/BLE Walk Test with graph view to find optimal device placement
-5. **Security Monitoring**: Enable Deauth Watch during important activities to detect attacks
-6. **Battery Life**: Use Power Mode → Ultra for extended operation
-7. **Quick Export**: Use History → Export Data to dump all findings to serial for analysis
-
 ## Troubleshooting
 
 ### No WiFi APs Detected
@@ -312,47 +288,3 @@ Connect at **115200 baud** to view:
 - Wait 2-3 seconds for first scan to complete
 - Ensure WiFi/BLE devices are nearby
 - Check if modems are active (not in sleep mode)
-
-## Version History
-
-### v1.3.3 (Current)
-- Fixed AP count showing 0 in Auto Watch mode (type mismatch bug)
-
-### v1.3.2
-- Fixed BLE random numbers bug in Auto Watch during channel switch
-- Added static cached BLE count with validation
-
-### v1.3.1
-- Attempted BLE stability fix with channel switch flag
-
-### v1.3.0
-- Device Monitor now shows WiFi clients (phones, laptops) via probe request sniffing
-- Added deep sleep mode (LONG press BACK) - requires RESET button to wake
-- Light sleep on screen timeout (any button wakes)
-- Added RSSI graph to RF Health menu (LONG press to toggle)
-
-### v1.2.2
-- Enhanced sleep mode with full modem shutdown
-- Device Monitor now shows MAC addresses
-- Auto Watch added 4th view: Channel APs
-- Improved power management
-- No auto-sleep on scanning screens
-
-### v1.2.1
-- Fixed LED sleep bug
-- Added AP names to RSSI graphs
-- Added graph view to walk tests
-
-### v1.2.0
-- Fixed BLE device count
-- Added RSSI graph to "Why Is It Slow"
-- NeoPixel sleep control
-
-
-
-
-## Credits
-
-Built for ESP32-C3 with Arduino framework.
-Uses U8g2 graphics library and Adafruit NeoPixel library 
-Made with help from claude code
