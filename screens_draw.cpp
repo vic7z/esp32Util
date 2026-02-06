@@ -6,8 +6,10 @@
 #include "utils.h"
 #include "security.h"
 #include "alerts.h"
+#include "ui_helpers.h"
 
 extern uint32_t pps, peak, peakPPS;
+
 extern uint32_t history[HISTORY_SIZE];
 extern uint8_t histIdx;
 extern uint8_t currentChannel, selectedChannel, analyzerChannel;
@@ -26,18 +28,12 @@ extern bool loggingActive;
 extern uint32_t loggedPackets;
 extern uint32_t sessionStart;
 extern uint32_t totalAPsFound;
-extern uint16_t autoTotalAPs, autoTotalBLE;
-extern uint8_t autoModeView;
-extern bool walkTestActive;
-extern char walkTargetSSID[33];
-extern uint8_t walkTargetBSSID[6];
-extern String walkTargetBLEAddr;
-extern int8_t walkRSSIHistory[WALK_HISTORY_SIZE];
-extern uint8_t walkHistoryIndex;
-extern int8_t walkMinRSSI, walkMaxRSSI;
-extern int32_t walkRSSISum;
-extern uint16_t walkSampleCount;
-extern uint8_t walkTestView;
+
+// extern uint16_t autoTotalAPs, autoTotalBLE; // REMOVED
+// extern uint8_t autoModeView; // REMOVED
+
+// Walk Test externs REMOVED
+
 extern uint8_t whySlowView;
 extern RSSIHistory rssiHistory[MAX_TRACKED_APS];
 extern uint8_t alertLevel;
@@ -123,10 +119,11 @@ void drawMonitor() {
     oled.drawFrame(0, 0, 128, 10);
     oled.setFont(u8g2_font_5x7_tf);
     oled.setCursor(2, 8);
-    oled.printf("CH%02d %luP/s L:%d%%", currentChannel, pps, liveLoad());
+    oled.printf("CH%02d %luP/s L:%d%%", scanState.currentChannel, pps, liveLoad());
 
     oled.setCursor(0, 18);
     oled.printf("B:%lu D:%lu X:%lu", pktBeacon, pktData, pktDeauth);
+
 
     int rssiBar = constrain((int)avgRssi + 100, 0, 50);
     oled.drawFrame(0, 20, 52, 6);
@@ -176,19 +173,21 @@ void drawMonitor() {
     oled.setCursor(0, 63);
     oled.print(channelInsight());
 
-    if (frozen) {
+    if (scanState.frozen) {
       oled.drawBox(118, 28, 9, 9);
       oled.setDrawColor(0);
       oled.drawStr(120, 35, "||");
       oled.setDrawColor(1);
     }
 
+
   } while (oled.nextPage());
 }
 
 void drawAnalyzer() {
-  uint8_t selLoad = channelLoad(selectedChannel);
+  uint8_t selLoad = channelLoad(scanState.selectedChannel);
   uint8_t best = bestChannel();
+
 
   oled.firstPage();
   do {
@@ -216,9 +215,9 @@ void drawAnalyzer() {
       }
 
       oled.setFont(u8g2_font_4x6_tf);
-      if (ch == selectedChannel && ch == best) {
+      if (ch == scanState.selectedChannel && ch == best) {
         oled.drawStr(x + 1, 6, "*v");
-      } else if (ch == selectedChannel) {
+      } else if (ch == scanState.selectedChannel) {
         oled.drawStr(x + 2, 6, "v");
       } else if (ch == best) {
         oled.drawStr(x + 2, 6, "*");
@@ -228,27 +227,28 @@ void drawAnalyzer() {
     oled.setFont(u8g2_font_5x7_tf);
     oled.drawFrame(0, 54, 128, 10);
     oled.setCursor(2, 62);
-    oled.printf("CH%02d:%s BEST:%02d", selectedChannel, loadQuality(selLoad), best);
+    oled.printf("CH%02d:%s BEST:%02d", scanState.selectedChannel, loadQuality(selLoad), best);
 
   } while (oled.nextPage());
 }
+
 
 void drawAutoWatch() {
   oled.firstPage();
   do {
     oled.setFont(u8g2_font_6x10_tf);
 
-    if (autoModeView == 0) {
+    if (autoWatch.viewMode == 0) {
       oled.drawStr(28, 8, "AUTO WATCH");
       oled.setFont(u8g2_font_4x6_tf);
       oled.drawStr(8, 16, "Auto WiFi+BLE Monitor");
 
       oled.setFont(u8g2_font_5x7_tf);
       char buf[20];
-      sprintf(buf, "APs:%d BLE:%d", autoTotalAPs, autoTotalBLE);
+      sprintf(buf, "APs:%d BLE:%d", autoWatch.totalAPs, autoWatch.totalBLE);
       oled.drawStr(0, 28, buf);
 
-      sprintf(buf, "CH:%d PKT:%lu", currentChannel, pktTotal);
+      sprintf(buf, "CH:%d PKT:%lu", scanState.currentChannel, pktTotal);
       oled.drawStr(0, 38, buf);
 
       if (deauthPerSecond > 0) {
@@ -258,7 +258,8 @@ void drawAutoWatch() {
         oled.drawStr(0, 48, "No attacks");
       }
 
-    } else if (autoModeView == 1) {
+    } else if (autoWatch.viewMode == 1) {
+
       oled.drawStr(25, 8, "TOP APs");
       oled.setFont(u8g2_font_5x7_tf);
 
@@ -273,7 +274,7 @@ void drawAutoWatch() {
         oled.drawStr(0, 20 + i * 10, buf);
       }
 
-    } else if (autoModeView == 2) {
+    } else if (autoWatch.viewMode == 2) {
       oled.drawStr(25, 8, "TOP BLE");
       oled.setFont(u8g2_font_5x7_tf);
 
@@ -281,9 +282,9 @@ void drawAutoWatch() {
       for (int i = 0; i < bleDeviceCount && displayedCount < 4; i++) {
         if (!bleDevices[i].isActive) continue; // Skip inactive devices
 
-        char name[13];
-        if (bleDevices[i].name.length() > 0) {
-          strncpy(name, bleDevices[i].name.c_str(), 12);
+      char name[13];
+        if (strlen(bleDevices[i].name) > 0) {
+          strncpy(name, bleDevices[i].name, 12);
           name[12] = '\0';
         } else {
           strcpy(name, "Unknown");
@@ -295,16 +296,17 @@ void drawAutoWatch() {
         displayedCount++;
       }
 
-    } else if (autoModeView == 3) {
+    } else if (autoWatch.viewMode == 3) {
       char title[20];
-      sprintf(title, "CH%d APs", currentChannel);
+
+      sprintf(title, "CH%d APs", scanState.currentChannel);
       oled.drawStr(30, 8, title);
       oled.setFont(u8g2_font_4x6_tf);
 
       uint8_t channelAPCount = 0;
       uint8_t shown = 0;
       for (int i = 0; i < apCount && shown < 5; i++) {
-        if (apList[i].primary == currentChannel) {
+        if (apList[i].primary == scanState.currentChannel) {
           char ssid[11];
           strncpy(ssid, (char*)apList[i].ssid, 10);
           ssid[10] = '\0';
@@ -318,8 +320,9 @@ void drawAutoWatch() {
       }
 
       for (int i = 0; i < apCount; i++) {
-        if (apList[i].primary == currentChannel) channelAPCount++;
+        if (apList[i].primary == scanState.currentChannel) channelAPCount++;
       }
+
 
       oled.setFont(u8g2_font_4x6_tf);
       oled.setCursor(0, 63);
@@ -400,54 +403,14 @@ void drawRFHealth() {
       oled.drawStr(85, 63, "BACK");
     } while (oled.nextPage());
   } else {
-    oled.firstPage();
-    do {
-      oled.setFont(u8g2_font_6x10_tf);
-      oled.drawStr(15, 10, "Avg RSSI Graph");
-
-      const uint8_t graphX = 10;
-      const uint8_t graphY = 15;
-      const uint8_t graphW = 108;
-      const uint8_t graphH = 35;
-
-      oled.drawFrame(graphX, graphY, graphW, graphH);
-
-      oled.setFont(u8g2_font_4x6_tf);
-      oled.drawStr(0, graphY + 5, "-30");
-      oled.drawStr(0, graphY + graphH - 2, "-90");
-
-      for (int i = 1; i < 3; i++) {
-        uint8_t y = graphY + (graphH * i / 3);
-        for (uint8_t x = graphX; x < graphX + graphW; x += 4) {
-          oled.drawPixel(x, y);
-        }
-      }
-
-      for (int i = 1; i < 60; i++) {
-        int idx1 = (rfHealthHistoryIndex + i - 1) % 60;
-        int idx2 = (rfHealthHistoryIndex + i) % 60;
-        int8_t rssi1 = rfHealthRSSIHistory[idx1];
-        int8_t rssi2 = rfHealthRSSIHistory[idx2];
-
-        if (rssi1 != 0 && rssi2 != 0) {
-          uint8_t y1 = graphY + graphH - ((rssi1 + 90) * graphH / 60);
-          uint8_t y2 = graphY + graphH - ((rssi2 + 90) * graphH / 60);
-          uint8_t x1 = graphX + (i - 1) * graphW / 60;
-          uint8_t x2 = graphX + i * graphW / 60;
-          oled.drawLine(x1, y1, x2, y2);
-        }
-      }
-
-      oled.setFont(u8g2_font_4x6_tf);
-      int8_t currentAvg = rfHealthRSSIHistory[(rfHealthHistoryIndex - 1 + 60) % 60];
-      oled.setCursor(0, 54);
-      oled.printf("Now:%d Min:%d Max:%d", currentAvg, rfHealthMinRSSI, rfHealthMaxRSSI);
-
-      oled.drawStr(0, 63, "LONG=Stats");
-      oled.drawStr(85, 63, "BACK");
-    } while (oled.nextPage());
+    char subtitle[30];
+    int8_t currentAvg = rfHealthRSSIHistory[(rfHealthHistoryIndex - 1 + 60) % 60];
+    sprintf(subtitle, "Now:%d Min:%d Max:%d", currentAvg, rfHealthMinRSSI, rfHealthMaxRSSI);
+    
+    drawRSSIGraph(rfHealthRSSIHistory, rfHealthHistoryIndex, -90, -30, "Avg RSSI Graph", subtitle);
   }
 }
+
 
 void drawDeviceMonitor() {
   oled.firstPage();
@@ -692,21 +655,21 @@ void drawApDetail() {
 }
 
 void drawAPWalkTest() {
-  if (walkTestView == 0) {
+  if (walkTest.viewMode == 0) {
     oled.firstPage();
     do {
       oled.setFont(u8g2_font_6x10_tf);
       oled.drawStr(15, 10, "AP WALK TEST");
 
-      if (walkTestActive) {
+      if (walkTest.active) {
         oled.setFont(u8g2_font_5x7_tf);
         char ssid[17];
-        strncpy(ssid, walkTargetSSID, 16);
+        strncpy(ssid, walkTest.targetSSID, 16);
         ssid[16] = '\0';
         oled.setCursor(0, 20);
-        oled.printf("%s", strlen(walkTargetSSID) ? ssid : "<hidden>");
+        oled.printf("%s", strlen(walkTest.targetSSID) ? ssid : "<hidden>");
 
-        int8_t currentRSSI = (walkSampleCount > 0) ? walkRSSIHistory[(walkHistoryIndex - 1 + WALK_HISTORY_SIZE) % WALK_HISTORY_SIZE] : 0;
+        int8_t currentRSSI = (walkTest.sampleCount > 0) ? walkTest.rssiHistory[(walkTest.historyIndex - 1 + WALK_HISTORY_SIZE) % WALK_HISTORY_SIZE] : 0;
         oled.setCursor(0, 30);
         if (currentRSSI != 0) {
           oled.printf("Now: %ddBm", currentRSSI);
@@ -714,16 +677,16 @@ void drawAPWalkTest() {
           oled.print("Scanning...");
         }
 
-        int8_t avgRSSI = walkSampleCount > 0 ? (walkRSSISum / walkSampleCount) : 0;
+        int8_t avgRSSI = walkTest.sampleCount > 0 ? (walkTest.rssiSum / walkTest.sampleCount) : 0;
         oled.setFont(u8g2_font_4x6_tf);
         oled.setCursor(0, 40);
-        oled.printf("Min:%d Max:%d Avg:%d", walkMinRSSI, walkMaxRSSI, avgRSSI);
+        oled.printf("Min:%d Max:%d Avg:%d", walkTest.minRSSI, walkTest.maxRSSI, avgRSSI);
 
         oled.drawFrame(0, 45, 128, 16);
         for (int i = 0; i < WALK_HISTORY_SIZE && i < 126; i++) {
-          int idx = (walkHistoryIndex + i) % WALK_HISTORY_SIZE;
-          if (walkRSSIHistory[idx] != 0) {
-            int height = map(constrain(walkRSSIHistory[idx], -90, -30), -90, -30, 1, 14);
+          int idx = (walkTest.historyIndex + i) % WALK_HISTORY_SIZE;
+          if (walkTest.rssiHistory[idx] != 0) {
+            int height = map(constrain(walkTest.rssiHistory[idx], -90, -30), -90, -30, 1, 14);
             int x = 1 + (i * 126 / WALK_HISTORY_SIZE);
             oled.drawVLine(x, 60 - height, height);
           }
@@ -737,60 +700,17 @@ void drawAPWalkTest() {
       }
     } while (oled.nextPage());
   } else {
-    oled.firstPage();
-    do {
-      oled.setFont(u8g2_font_6x10_tf);
-      oled.drawStr(20, 10, "RSSI Graph");
-
-      const uint8_t graphX = 10;
-      const uint8_t graphY = 15;
-      const uint8_t graphW = 108;
-      const uint8_t graphH = 35;
-
-      oled.drawFrame(graphX, graphY, graphW, graphH);
-
-      oled.setFont(u8g2_font_4x6_tf);
-      oled.drawStr(0, graphY + 5, "-30");
-      oled.drawStr(0, graphY + graphH - 2, "-90");
-
-      for (int i = 1; i < 3; i++) {
-        uint8_t y = graphY + (graphH * i / 3);
-        for (uint8_t x = graphX; x < graphX + graphW; x += 4) {
-          oled.drawPixel(x, y);
-        }
-      }
-
-      for (int i = 1; i < WALK_HISTORY_SIZE; i++) {
-        int idx1 = (walkHistoryIndex + i - 1) % WALK_HISTORY_SIZE;
-        int idx2 = (walkHistoryIndex + i) % WALK_HISTORY_SIZE;
-        int8_t rssi1 = walkRSSIHistory[idx1];
-        int8_t rssi2 = walkRSSIHistory[idx2];
-
-        if (rssi1 != 0 && rssi2 != 0) {
-                    uint8_t y1 = graphY + graphH - ((rssi1 + 90) * graphH / 60);
-          uint8_t y2 = graphY + graphH - ((rssi2 + 90) * graphH / 60);
-
-                    uint8_t x1 = graphX + (i - 1) * graphW / WALK_HISTORY_SIZE;
-          uint8_t x2 = graphX + i * graphW / WALK_HISTORY_SIZE;
-
-                    oled.drawLine(x1, y1, x2, y2);
-        }
-      }
-
-      oled.setFont(u8g2_font_4x6_tf);
-      oled.setCursor(0, 54);
-      char ssid[17];
-      strncpy(ssid, walkTargetSSID, 16);
-      ssid[16] = '\0';
-      oled.printf("%s", strlen(walkTargetSSID) ? ssid : "<hidden>");
-
-      int8_t avgRSSI = walkSampleCount > 0 ? (walkRSSISum / walkSampleCount) : 0;
-      oled.setCursor(0, 60);
-      oled.printf("Avg:%d Min:%d Max:%d", avgRSSI, walkMinRSSI, walkMaxRSSI);
-      oled.drawStr(60, 64, "SHORT=Stats");
-    } while (oled.nextPage());
+    char ssid[17];
+    strncpy(ssid, walkTest.targetSSID, 16);
+    ssid[16] = '\0';
+    char subtitle[40];
+    int8_t avgRSSI = walkTest.sampleCount > 0 ? (walkTest.rssiSum / walkTest.sampleCount) : 0;
+    sprintf(subtitle, "Avg:%d Min:%d Max:%d", avgRSSI, walkTest.minRSSI, walkTest.maxRSSI);
+    
+    drawRSSIGraph(walkTest.rssiHistory, walkTest.historyIndex, -90, -30, strlen(walkTest.targetSSID) ? ssid : "<hidden>", subtitle);
   }
 }
+
 
 void drawCompare() {
   wifi_ap_record_t* apA = &apList[apCompareA];
@@ -896,7 +816,7 @@ void drawBLEScan() {
 
         oled.setFont(u8g2_font_5x7_tf);
         char nameBuf[11] = {0};
-        strncpy(nameBuf, bleDevices[idx].name.c_str(), 10);
+        strncpy(nameBuf, bleDevices[idx].name, 10);
         nameBuf[10] = 0;
         oled.drawStr(13, yPos, nameBuf);
 
@@ -924,7 +844,7 @@ void drawBLEScan() {
         oled.setFont(u8g2_font_4x6_tf);
         oled.setCursor(13, yPos + 7);
         char macBuf[13] = {0};
-        strncpy(macBuf, bleDevices[idx].address.c_str(), 12);
+        strncpy(macBuf, bleDevices[idx].address, 12);
         oled.print(macBuf);
       }
 
@@ -945,7 +865,7 @@ void drawBLEDetail() {
     oled.setCursor(0, 7);
 
     char nameBuf[17] = {0};
-    strncpy(nameBuf, dev->name.c_str(), 16);
+    strncpy(nameBuf, dev->name, 16);
     oled.printf("Name:%s", nameBuf);
 
     oled.setCursor(0, 16);
@@ -966,7 +886,7 @@ void drawBLEDetail() {
 
     oled.setFont(u8g2_font_4x6_tf);
     oled.setCursor(0, 51);
-    oled.printf("MAC:%s", dev->address.c_str());
+    oled.printf("MAC:%s", dev->address);
 
     oled.drawLine(0, 54, 127, 54);  // Separator line
     oled.setFont(u8g2_font_4x6_tf);
@@ -975,29 +895,29 @@ void drawBLEDetail() {
 }
 
 void drawBLEWalkTest() {
-  if (walkTestView == 0) {
+  if (walkTest.viewMode == 0) {
     oled.firstPage();
     do {
       oled.setFont(u8g2_font_6x10_tf);
       oled.drawStr(10, 10, "BLE WALK TEST");
 
-      if (walkTestActive && walkTargetBLEAddr.length() > 0) {
+      if (walkTest.active && strlen(walkTest.targetBLEAddr) > 0) {
         // Show address (truncated, from saved data)
         oled.setFont(u8g2_font_5x7_tf);
         char addr[17];
-        strncpy(addr, walkTargetBLEAddr.c_str(), 16);
+        strncpy(addr, walkTest.targetBLEAddr, 16);
         addr[16] = '\0';
         oled.setCursor(0, 20);
         oled.print(addr);
 
         // Current RSSI (from last sample in history)
-        int8_t currentRSSI = walkRSSIHistory[(walkHistoryIndex - 1 + WALK_HISTORY_SIZE) % WALK_HISTORY_SIZE];
-        if (currentRSSI == 0 && walkSampleCount > 0) {
+        int8_t currentRSSI = walkTest.rssiHistory[(walkTest.historyIndex - 1 + WALK_HISTORY_SIZE) % WALK_HISTORY_SIZE];
+        if (currentRSSI == 0 && walkTest.sampleCount > 0) {
           // Find last non-zero sample
           for (int i = 1; i < WALK_HISTORY_SIZE; i++) {
-            int idx = (walkHistoryIndex - i + WALK_HISTORY_SIZE) % WALK_HISTORY_SIZE;
-            if (walkRSSIHistory[idx] != 0) {
-              currentRSSI = walkRSSIHistory[idx];
+            int idx = (walkTest.historyIndex - i + WALK_HISTORY_SIZE) % WALK_HISTORY_SIZE;
+            if (walkTest.rssiHistory[idx] != 0) {
+              currentRSSI = walkTest.rssiHistory[idx];
               break;
             }
           }
@@ -1007,16 +927,16 @@ void drawBLEWalkTest() {
         oled.printf("Now: %ddBm", currentRSSI);
 
         // Min/Max/Avg
-        int8_t avgRSSI = walkSampleCount > 0 ? (walkRSSISum / walkSampleCount) : currentRSSI;
+        int8_t avgRSSI = walkTest.sampleCount > 0 ? (walkTest.rssiSum / walkTest.sampleCount) : currentRSSI;
         oled.setFont(u8g2_font_4x6_tf);
         oled.setCursor(0, 40);
-        oled.printf("Min:%d Max:%d Avg:%d", walkMinRSSI, walkMaxRSSI, avgRSSI);
+        oled.printf("Min:%d Max:%d Avg:%d", walkTest.minRSSI, walkTest.maxRSSI, avgRSSI);
 
         oled.drawFrame(0, 45, 128, 16);
         for (int i = 0; i < WALK_HISTORY_SIZE && i < 126; i++) {
-          int idx = (walkHistoryIndex + i) % WALK_HISTORY_SIZE;
-          if (walkRSSIHistory[idx] != 0) {
-            int height = map(constrain(walkRSSIHistory[idx], -90, -30), -90, -30, 1, 14);
+          int idx = (walkTest.historyIndex + i) % WALK_HISTORY_SIZE;
+          if (walkTest.rssiHistory[idx] != 0) {
+            int height = map(constrain(walkTest.rssiHistory[idx], -90, -30), -90, -30, 1, 14);
             int x = 1 + (i * 126 / WALK_HISTORY_SIZE);
             oled.drawVLine(x, 60 - height, height);
           }
@@ -1030,61 +950,17 @@ void drawBLEWalkTest() {
       }
     } while (oled.nextPage());
   } else {
-    oled.firstPage();
-    do {
-      oled.setFont(u8g2_font_6x10_tf);
-      oled.drawStr(20, 10, "RSSI Graph");
-
-      const uint8_t graphX = 10;
-      const uint8_t graphY = 15;
-      const uint8_t graphW = 108;
-      const uint8_t graphH = 35;
-
-      oled.drawFrame(graphX, graphY, graphW, graphH);
-
-      oled.setFont(u8g2_font_4x6_tf);
-      oled.drawStr(0, graphY + 5, "-30");
-      oled.drawStr(0, graphY + graphH - 2, "-90");
-
-      for (int i = 1; i < 3; i++) {
-        uint8_t y = graphY + (graphH * i / 3);
-        for (uint8_t x = graphX; x < graphX + graphW; x += 4) {
-          oled.drawPixel(x, y);
-        }
-      }
-
-      for (int i = 1; i < WALK_HISTORY_SIZE; i++) {
-        int idx1 = (walkHistoryIndex + i - 1) % WALK_HISTORY_SIZE;
-        int idx2 = (walkHistoryIndex + i) % WALK_HISTORY_SIZE;
-        int8_t rssi1 = walkRSSIHistory[idx1];
-        int8_t rssi2 = walkRSSIHistory[idx2];
-
-        if (rssi1 != 0 && rssi2 != 0) {
-                    uint8_t y1 = graphY + graphH - ((rssi1 + 90) * graphH / 60);
-          uint8_t y2 = graphY + graphH - ((rssi2 + 90) * graphH / 60);
-
-                    uint8_t x1 = graphX + (i - 1) * graphW / WALK_HISTORY_SIZE;
-          uint8_t x2 = graphX + i * graphW / WALK_HISTORY_SIZE;
-
-                    oled.drawLine(x1, y1, x2, y2);
-        }
-      }
-
-      // Show BLE address and stats
-      oled.setFont(u8g2_font_4x6_tf);
-      oled.setCursor(0, 54);
-      char addr[17];
-      strncpy(addr, walkTargetBLEAddr.c_str(), 16);
-      addr[16] = '\0';
-      oled.printf("%s", addr);
-
-      int8_t avgRSSI = walkSampleCount > 0 ? (walkRSSISum / walkSampleCount) : 0;
-      oled.setCursor(0, 60);
-      oled.printf("Avg:%d Min:%d Max:%d", avgRSSI, walkMinRSSI, walkMaxRSSI);
-      oled.drawStr(60, 64, "SHORT=Stats");
-    } while (oled.nextPage());
+    char addr[17];
+    strncpy(addr, walkTest.targetBLEAddr, 16);
+    addr[16] = '\0';
+    char subtitle[40];
+    int8_t avgRSSI = walkTest.sampleCount > 0 ? (walkTest.rssiSum / walkTest.sampleCount) : 0;
+    sprintf(subtitle, "Avg:%d Min:%d Max:%d", avgRSSI, walkTest.minRSSI, walkTest.maxRSSI);
+    
+    drawRSSIGraph(walkTest.rssiHistory, walkTest.historyIndex, -90, -30, addr, subtitle);
   }
 }
+
 
 void drawDeauthWatch() {
   oled.firstPage();
@@ -1094,10 +970,11 @@ void drawDeauthWatch() {
 
     oled.setFont(u8g2_font_5x7_tf);
     oled.setCursor(0, 22);
-    oled.printf("Channel: %d", currentChannel);
+    oled.printf("Channel: %d", scanState.currentChannel);
 
     oled.setCursor(0, 32);
     oled.printf("Rate: %lu/sec", deauthPerSecond);
+
 
     oled.setCursor(0, 42);
     oled.printf("Total: %lu", totalDeauthDetected);
@@ -1186,7 +1063,7 @@ void drawBLETrackerWatch() {
         if (bleDevices[i].advType > 0 || !bleDevices[i].hasName) {
           oled.setCursor(5, 50 + shown * 8);
           char addr[13];
-          strncpy(addr, bleDevices[i].address.c_str(), 12);
+          strncpy(addr, bleDevices[i].address, 12);
           addr[12] = '\0';
           oled.printf("%s %ddBm", addr, bleDevices[i].rssi);
           shown++;
@@ -1811,13 +1688,14 @@ void drawRadioControl() {
 
     // Current Channel
     oled.setCursor(0, 22);
-    oled.printf("Monitor Channel: %d", currentChannel);
+    oled.printf("Monitor Channel: %d", scanState.currentChannel);
 
     // Channel bar
     oled.setFont(u8g2_font_4x6_tf);
     oled.drawFrame(0, 26, 128, 12);
-    int chPos = ((currentChannel - 1) * 116) / 12 + 1;
+    int chPos = ((scanState.currentChannel - 1) * 116) / 12 + 1;
     oled.drawBox(chPos, 27, 8, 10);
+
 
     oled.setCursor(0, 46);
     oled.print("1        6        11  13");
@@ -2038,5 +1916,27 @@ void drawPlaceholder(const char* title, const char* subtitle) {
 
     oled.setFont(u8g2_font_4x6_tf);
     oled.drawStr(20, 58, "BACK = Return");
+  } while (oled.nextPage());
+}
+
+void drawWebServer() {
+  oled.firstPage();
+  do {
+    oled.setFont(u8g2_font_6x10_tf);
+    oled.drawStr(25, 10, "WEB SERVER");
+
+    oled.setFont(u8g2_font_5x7_tf);
+    oled.setCursor(0, 22);
+    oled.print("SSID: ESP32-Tool");
+    oled.setCursor(0, 31);
+    oled.print("IP: 192.168.4.1");
+    oled.setCursor(0, 40);
+    oled.print("URL: esp32.util");
+    oled.setCursor(0, 49);
+    oled.print("Pass: 12345678");
+
+    oled.drawLine(0, 54, 127, 54);
+    oled.setFont(u8g2_font_4x6_tf);
+    oled.drawStr(30, 61, "BACK=Stop");
   } while (oled.nextPage());
 }

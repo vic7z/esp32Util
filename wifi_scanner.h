@@ -13,17 +13,17 @@ extern uint8_t histIdx;
 extern uint32_t pps, peak, lastPkt;
 extern float smoothPps;
 extern float avgRssi;
-extern bool frozen;
-extern uint8_t currentChannel;
-extern uint32_t lastSecond;
+// extern bool frozen; // REMOVED
+// extern uint8_t currentChannel; // REMOVED
+// extern uint32_t lastSecond; // REMOVED
 extern bool signalAlert;
 
 extern uint32_t chPackets[MAX_CHANNEL + 1];
 extern uint32_t chBeacons[MAX_CHANNEL + 1];
 extern uint32_t chDeauth[MAX_CHANNEL + 1];
-extern uint8_t analyzerChannel;
-extern uint8_t selectedChannel;
-extern uint32_t analyzerLastHop;
+// extern uint8_t analyzerChannel; // REMOVED
+// extern uint8_t selectedChannel; // REMOVED
+// extern uint32_t analyzerLastHop; // REMOVED
 
 extern wifi_ap_record_t apList[MAX_APS];
 extern uint16_t apCount;
@@ -32,8 +32,9 @@ extern uint8_t apScroll;
 extern uint8_t apSelectedIndex;
 extern uint8_t apCompareA;
 extern uint8_t apCompareB;
-extern uint32_t lastScan;
+// extern uint32_t lastScan; // REMOVED
 extern bool apSortedOnce;
+
 
 extern HiddenSSID hiddenList[MAX_HIDDEN_SSIDS];
 extern uint8_t hiddenCount;

@@ -183,8 +183,8 @@ void updateDeviceMonitor() {
   for (int i = 0; i < bleDeviceCount; i++) {
     if (bleDevices[i].isActive) {
       addOrUpdateBLEDevice(
-        bleDevices[i].address.c_str(),
-        bleDevices[i].name.c_str(),
+        bleDevices[i].address,
+        bleDevices[i].name,
         bleDevices[i].rssi
       );
     }

@@ -50,6 +50,7 @@ void drawRSSIMeter();
 void drawChannelScorecard();
 void drawExport();
 void drawPowerMode();
+void drawWebServer();
 
 void drawPlaceholder(const char* title, const char* subtitle);
 

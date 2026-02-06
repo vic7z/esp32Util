@@ -58,9 +58,10 @@ char getQualityGrade(wifi_ap_record_t* ap) {
   else if (ap->authmode == WIFI_AUTH_WEP) score += 5;
 
   uint8_t load = channelLoad(ap->primary);
-  if (load < 20) score += 30;
-  else if (load < 40) score += 20;
-  else if (load < 70) score += 10;
+  if (load < LOAD_GOOD) score += 30;
+  else if (load < LOAD_OK) score += 20;
+  else if (load < LOAD_BUSY) score += 10;
+
 
   if (score >= 90) return 'A';
   if (score >= 75) return 'B';

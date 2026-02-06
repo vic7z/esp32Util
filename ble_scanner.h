@@ -14,9 +14,10 @@ extern uint8_t bleSelectedIndex;
 extern bool bleScanning;
 extern bool bleInitialized;
 extern uint32_t bleScanStart;
-extern uint32_t lastBLEScan;
-extern uint32_t lastBLESort;
+// extern uint32_t lastBLEScan; // REMOVED
+// extern uint32_t lastBLESort; // REMOVED
 extern BLEScan* pBLEScan;
+
 
 class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
   void onResult(BLEAdvertisedDevice advertisedDevice);

@@ -51,6 +51,23 @@ enum ButtonEvent { BTN_NONE, BTN_SHORT, BTN_LONG, BTN_BACK, BTN_BACK_LONG };
 #define MAX_MONITORED_DEVICES 15
 #define DEVICE_TIMEOUT_MS 30000
 
+// Timing
+#define WIFI_SCAN_DELAY_MS      1500
+#define BLE_SCAN_INTERVAL_MS    2000
+#define BLE_TIMEOUT_MS          10000
+#define BUTTON_COOLDOWN_MS      150
+
+// RSSI Thresholds
+#define RSSI_EXCELLENT          -40
+#define RSSI_GOOD               -55
+#define RSSI_FAIR               -70
+#define RSSI_POOR               -85
+
+// Load Thresholds
+#define LOAD_GOOD               20
+#define LOAD_OK                 40
+#define LOAD_BUSY               70
+
 struct Settings {
   uint8_t scanSpeed;
   int8_t rssiThreshold;
@@ -60,6 +77,8 @@ struct Settings {
   uint8_t deauthThreshold;
   uint16_t screenTimeout;
   uint8_t powerMode;
+  char apSSID[33];      // AP SSID (max 32 + null)
+  char apPassword[65];  // AP Password (max 64 + null)
 };
 
 struct HiddenSSID {
@@ -76,13 +95,57 @@ struct RogueAP {
   bool active;
 };
 
+// Refactoring Structs
+struct ScanState {
+  uint32_t lastScan;
+  uint32_t lastAutoWifiScan;
+  uint32_t lastAutoBLEScan;
+  uint32_t lastBLELoop;
+  uint32_t lastEnvCheck;
+  uint32_t lastBaselineUpdate;
+  uint32_t lastBLESort;
+  uint32_t lastSecond;
+  uint32_t analyzerLastHop;
+  uint8_t currentChannel;
+  uint8_t selectedChannel;
+  uint8_t analyzerChannel;
+  bool frozen;
+};
+
+struct AutoWatchState {
+  uint16_t totalAPs;
+  uint16_t totalBLE;
+  uint8_t viewMode;
+};
+
+struct WalkTestState {
+  bool active;
+  char targetSSID[33];
+  uint8_t targetBSSID[6];
+  char targetBLEAddr[18];
+  int8_t rssiHistory[WALK_HISTORY_SIZE];
+  uint8_t historyIndex;
+  int8_t minRSSI;
+  int8_t maxRSSI;
+  int32_t rssiSum;
+  uint16_t sampleCount;
+  uint8_t viewMode;
+};
+
+struct ListCursor {
+  uint8_t cursor;
+  uint8_t scroll;
+  uint8_t selectedIndex;
+};
+
 struct BLEDeviceInfo {
-  String address;
-  String name;
-  int rssi;
+
+  char address[18];     // "XX:XX:XX:XX:XX:XX\0" - fixed allocation (no heap fragmentation)
+  char name[33];        // Max BLE name (32) + null terminator - fixed allocation
+  int8_t rssi;          // RSSI range is -127 to 0, int8_t saves 3 bytes per device
   bool isActive;
   uint32_t lastSeen;
-  uint8_t advType;
+  uint8_t advType;      // 0=unknown, 1=iBeacon
   bool hasName;
 };
 
@@ -128,6 +191,19 @@ struct RSSIHistory {
   bool active;
 };
 
+// Packet log for web UI verbose mode
+#define MAX_PKT_LOG 50
+struct PacketLog {
+  uint32_t timestamp;
+  uint8_t type;      // 0=mgmt, 1=data, 2=deauth
+  uint8_t subtype;   // frame subtype
+  uint8_t channel;
+  int8_t rssi;
+  uint8_t bssid[6];
+  char ssid[33];     // for beacons
+  bool active;
+};
+
 extern U8G2_SSD1306_128X64_NONAME_1_HW_I2C oled;
 extern Adafruit_NeoPixel rgb;
 extern Preferences prefs;
@@ -147,4 +223,16 @@ extern uint8_t deviceCursor;
 extern uint8_t deviceScroll;
 extern uint8_t deviceSelectedIndex;
 
+extern ScanState scanState;
+extern AutoWatchState autoWatch;
+extern WalkTestState walkTest;
+extern ListCursor apListState;
+extern ListCursor bleListState;
+
+// Packet log for web UI
+extern PacketLog pktLogBuffer[MAX_PKT_LOG];
+extern uint8_t pktLogIndex;
+extern uint8_t pktLogCount;
+
 #endif
+

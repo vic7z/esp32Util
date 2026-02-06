@@ -1,6 +1,13 @@
-# ESP32 WiFi/BLE Utility
+# ESP32 Pocket RF Tool
 
-A WiFi and Bluetooth LE analyzer and security monitor for ESP32 microcontrollers.
+A professional WiFi and Bluetooth LE analyzer, security monitor, and diagnostic tool for ESP32 microcontrollers.
+
+![Version](https://img.shields.io/badge/version-v2.0-blue)
+![Platform](https://img.shields.io/badge/platform-ESP32%2C%20ESP32--C3%2C%20ESP32--S2-green)
+
+## Overview
+
+The ESP32 Pocket RF Tool is a comprehensive wireless analysis device that fits in your pocket. It provides real-time WiFi and BLE scanning, security monitoring, signal analysis, and now features an advanced web interface for remote monitoring and control.
 
 ## Hardware Support
 
@@ -16,7 +23,6 @@ The default configuration is set for a Waveshare ESP32-C3-Zero with an I2C OLED 
 | OLED SDA | GPIO 4 | I2C Data |
 | OLED SCL | GPIO 5 | I2C Clock |
 | RGB LED (NeoPixel) | GPIO 10 | **Note:** Onboard LED is GPIO 8 |
-
 
 ## Features
 
@@ -187,6 +193,70 @@ Firmware information.
 - Build date
 - Features list
 
+### Web Server ⭐ NEW in v2.0!
+The Web Server is now directly accessible from the Main Menu!
+
+Start the web server to access a powerful web interface from any device:
+- **SSID**: `ESP32-Tool`
+- **Password**: `12345678`
+- **URL**: `http://esp32.util` or `http://192.168.4.1`
+
+#### Web Interface Features
+
+**📊 Dashboard**
+- Real-time WiFi/BLE device counters
+- Security alert status
+- Best channel recommendation
+- Live signal history graph
+- Channel distribution visualization
+
+**📶 WiFi Networks**
+- Complete list of all detected APs
+- **Filter tabs**: All / Open Only / Secure Only
+- Sortable by RSSI or Channel
+- **Click any AP for detailed info:**
+  - SSID and BSSID
+  - Vendor identification
+  - Channel and frequency
+  - Signal strength with quality rating
+  - Estimated distance
+  - Security type
+- Export to CSV
+
+**🔷 BLE Devices**
+- Complete list of detected BLE devices
+- **Filter tabs**: All / Trackers / Beacons
+- **Click any device for detailed info:**
+  - Device name and MAC address
+  - Device type (iBeacon/Eddystone/Tracker/Generic)
+  - Signal strength
+  - Advertisement details
+- Export to CSV
+
+**📡 Analyzer**
+- **Live Channel Usage**: Visual bar chart for all 13 channels
+- **Smart Recommendations**: AI-powered best channel selection
+- **Live Spectrum**: Real-time RF spectrum visualization
+- **Channel Statistics**: Detailed stats for channels 1, 6, 11
+- Auto-updates every 2 seconds
+
+**🛡️ Security**
+- Deauth attack monitor with live graph
+- Rogue AP detection with BSSID details
+- BLE tracker counter
+- Security event log with timestamps
+- Export events as JSON
+
+**🧰 Tools** ⭐ NEW!
+- **Signal Tracker**: Track specific AP signal strength over time
+- Full Scan (WiFi + BLE simultaneously)
+- Export all data (JSON/CSV)
+
+**⚙️ Settings**
+- Configure all device settings remotely
+- Scan speed, RSSI threshold, RGB brightness
+- Screen timeout, deauth threshold, power mode
+
 ## Button Controls
 
 ### Action Button (GPIO 2)
@@ -218,6 +288,7 @@ Firmware information.
   - Device Monitor, AP Scanner, BLE Monitor
   - All Security screens (Deauth Watch, Rogue AP Watch, BLE Tracker Watch)
   - RSSI graphs and walk tests
+  - **Web Server** (active web interface)
 
 - **When sleeping**:
   - OLED display turns off
@@ -235,6 +306,7 @@ Firmware information.
 - **WiFi**: 2.4GHz, Channels 1-13
 - **BLE**: Bluetooth 5.0 LE
 - **Partition Scheme**: Huge APP (3MB No OTA/1MB SPIFFS)
+- **Web Interface**: Real-time updates every 2 seconds
 
 ## Data Limits
 
@@ -258,14 +330,14 @@ arduino-cli lib install U8g2 "Adafruit NeoPixel"
 
 ### Compile
 ```bash
-arduino-cli compile --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app esp32Util.ino
+arduino-cli compile --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app .
 ```
 
 ### Upload
 ```bash
-arduino-cli upload -p COM7 --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app esp32Util.ino
+arduino-cli upload -p COM3 --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app .
 ```
-*Note: Replace COM7 with your actual port*
+*Note: Replace COM3 with your actual port (check with `arduino-cli board list`)*
 
 ## Troubleshooting
 
@@ -288,3 +360,33 @@ arduino-cli upload -p COM7 --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app e
 - Wait 2-3 seconds for first scan to complete
 - Ensure WiFi/BLE devices are nearby
 - Check if modems are active (not in sleep mode)
+
+### Web Server Won't Start
+- Ensure you're using the **Huge APP** partition scheme
+- Check available flash space
+- Try resetting the device
+
+### Can't Connect to Web Interface
+- Verify you're connected to `ESP32-Tool` WiFi
+- Check password: `12345678`
+- Try both URLs: `http://esp32.util` and `http://192.168.4.1`
+- Ensure web server is running (check OLED display)
+
+## Version History
+
+### v2.0 (Latest)
+- **NEW**: Web Server moved to Main Menu
+- **NEW**: Completely redesigned web interface
+- **NEW**: Channel recommendations in web UI
+- **NEW**: Click on AP/BLE devices for detailed info
+- **NEW**: Signal tracker tool in web UI
+- **NEW**: Live spectrum visualization
+- **NEW**: Rogue AP detection in web UI
+- **NEW**: URL `esp32.util` displayed on OLED
+
+### v1.x
+- Initial release
+- OLED menu system
+- WiFi/BLE scanning
+- Security monitoring
+- Walk tests

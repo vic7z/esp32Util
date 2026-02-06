@@ -9,54 +9,15 @@ uint8_t bleSelectedIndex = 0;
 bool bleScanning = false;
 bool bleInitialized = false;
 uint32_t bleScanStart = 0;
-uint32_t lastBLEScan = 0;
-uint32_t lastBLESort = 0;
+// uint32_t lastBLEScan = 0; // REMOVED
+// uint32_t lastBLESort = 0; // REMOVED
 BLEScan* pBLEScan = nullptr;
 
+
 void MyAdvertisedDeviceCallbacks::onResult(BLEAdvertisedDevice advertisedDevice) {
-  String addr = advertisedDevice.getAddress().toString().c_str();
-  bool found = false;
-
-  for (int i = 0; i < bleDeviceCount; i++) {
-    if (bleDevices[i].address == addr) {
-      bleDevices[i].rssi = advertisedDevice.getRSSI();
-      bleDevices[i].lastSeen = millis();
-      bleDevices[i].isActive = true;
-      if (advertisedDevice.haveName()) {
-        bleDevices[i].name = advertisedDevice.getName().c_str();
-        bleDevices[i].hasName = true;
-      }
-      found = true;
-      break;
-    }
-  }
-
-  if (!found && bleDeviceCount < MAX_BLE_DEVICES) {
-    bleDevices[bleDeviceCount].address = addr;
-    bleDevices[bleDeviceCount].rssi = advertisedDevice.getRSSI();
-    bleDevices[bleDeviceCount].lastSeen = millis();
-    bleDevices[bleDeviceCount].isActive = true;
-    bleDevices[bleDeviceCount].advType = 0;
-
-    if (advertisedDevice.haveName()) {
-      bleDevices[bleDeviceCount].name = advertisedDevice.getName().c_str();
-      bleDevices[bleDeviceCount].hasName = true;
-    } else {
-      bleDevices[bleDeviceCount].name = "Unknown";
-      bleDevices[bleDeviceCount].hasName = false;
-    }
-
-    if (advertisedDevice.haveManufacturerData()) {
-      String data = advertisedDevice.getManufacturerData().c_str();
-      if (data.length() >= 2) {
-        if ((uint8_t)data[0] == 0x4C && (uint8_t)data[1] == 0x00) {
-          bleDevices[bleDeviceCount].advType = 1;
-        }
-      }
-    }
-
-    bleDeviceCount++;
-  }
+  // Note: This callback is kept for compatibility but we now process results
+  // directly in updateBLEScan() for more reliable device detection.
+  // The callback may still fire during scans but we don't rely on it.
 }
 
 void initBLE() {
@@ -67,6 +28,7 @@ void initBLE() {
     pBLEScan->setActiveScan(true);
     pBLEScan->setInterval(100);
     pBLEScan->setWindow(99);
+    pBLEScan->setDuplicateFilter(false);  // Report all devices, not just new ones
     bleInitialized = true;
   }
 }
@@ -75,11 +37,12 @@ void startBLEScan() {
   if (bleInitialized && !bleScanning) {
     bleScanning = true;
     bleScanStart = millis();
-    lastBLEScan = 0;
+    scanState.lastBLELoop = 0;
   }
 }
 
 void stopBLEScan() {
+
   if (bleScanning && pBLEScan != nullptr) {
     pBLEScan->stop();
     pBLEScan->clearResults();
@@ -92,14 +55,72 @@ void updateBLEScan() {
     return;
   }
 
-  if (millis() - lastBLEScan > 1000) {
-    pBLEScan->start(1, false);
-    lastBLEScan = millis();
+  uint32_t now = millis();
+  
+  // Trigger a new scan every 2 seconds
+  if (now - scanState.lastBLELoop > BLE_SCAN_INTERVAL_MS) {
+    // Check if scan is not already running
+    if (!pBLEScan->isScanning()) {
+      pBLEScan->clearResults();
+      BLEScanResults* results = pBLEScan->start(1, false);  // 1 second blocking scan
+      
+      // Process results directly (don't rely on callback)
+      if (results != nullptr) {
+        int count = results->getCount();
+        for (int i = 0; i < count && bleDeviceCount < MAX_BLE_DEVICES; i++) {
+          BLEAdvertisedDevice device = results->getDevice(i);
+          String addrStr = device.getAddress().toString();
+          char addr[18];
+          strncpy(addr, addrStr.c_str(), 17);
+          addr[17] = '\0';
+          
+          // Check if device already exists
+          bool found = false;
+          for (int j = 0; j < bleDeviceCount; j++) {
+            if (strcmp(bleDevices[j].address, addr) == 0) {
+              // Update existing device
+              bleDevices[j].rssi = (int8_t)device.getRSSI();
+              bleDevices[j].lastSeen = now;
+              bleDevices[j].isActive = true;
+              if (device.haveName()) {
+                strncpy(bleDevices[j].name, device.getName().c_str(), 32);
+                bleDevices[j].name[32] = '\0';
+                bleDevices[j].hasName = true;
+              }
+              found = true;
+              break;
+            }
+          }
+          
+          // Add new device
+          if (!found && bleDeviceCount < MAX_BLE_DEVICES) {
+            strncpy(bleDevices[bleDeviceCount].address, addr, 17);
+            bleDevices[bleDeviceCount].address[17] = '\0';
+            bleDevices[bleDeviceCount].rssi = (int8_t)device.getRSSI();
+            bleDevices[bleDeviceCount].lastSeen = now;
+            bleDevices[bleDeviceCount].isActive = true;
+            bleDevices[bleDeviceCount].advType = 0;
+            
+            if (device.haveName()) {
+              strncpy(bleDevices[bleDeviceCount].name, device.getName().c_str(), 32);
+              bleDevices[bleDeviceCount].name[32] = '\0';
+              bleDevices[bleDeviceCount].hasName = true;
+            } else {
+              strcpy(bleDevices[bleDeviceCount].name, "Unknown");
+              bleDevices[bleDeviceCount].hasName = false;
+            }
+            
+            bleDeviceCount++;
+          }
+        }
+      }
+    }
+    scanState.lastBLELoop = now;
   }
 
-  uint32_t now = millis();
+  // Mark devices as inactive if not seen for 10 seconds
   for (int i = 0; i < bleDeviceCount; i++) {
-    if (now - bleDevices[i].lastSeen > 10000) {
+    if (now - bleDevices[i].lastSeen > BLE_TIMEOUT_MS) {
       bleDevices[i].isActive = false;
     }
   }

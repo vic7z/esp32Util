@@ -49,5 +49,6 @@ void handlePowerMode(ButtonEvent ev);
 void handleAbout(ButtonEvent ev);
 
 void handleStats(ButtonEvent ev);
+void handleWebServer(ButtonEvent ev);
 
 #endif // SCREENS_HANDLERS_H

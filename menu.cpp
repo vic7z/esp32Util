@@ -11,10 +11,11 @@ const char* mainMenuItems[] = {
   "Security",
   "Insights",
   "History",
-  "System"
+  "System",
+  "Web Server"
 };
 uint8_t mainMenuIndex = 0;
-const uint8_t MAIN_MENU_SIZE = 11;
+const uint8_t MAIN_MENU_SIZE = 12;
 
 const char* securityMenuItems[] = {
   "Deauth Watch",
