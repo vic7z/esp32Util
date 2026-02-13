@@ -1,20 +1,10 @@
 # Project documentation (private)
 CLAUDE.md
-AGENTS.md
-REFACTOR.md
-
-# Claude Code
-.claude/
-
 # Build artifacts
 build/
-build_output/
 *.elf
 *.bin
 *.map
-
-# SPIFFS image
-spiffs.bin
 
 # IDE settings
 .vscode/
@@ -24,7 +14,6 @@ spiffs.bin
 .DS_Store
 Thumbs.db
 desktop.ini
-nul
 
 # Temporary files
 *.tmp
