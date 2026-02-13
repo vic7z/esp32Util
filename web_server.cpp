@@ -148,10 +148,9 @@ void startSniffer(uint8_t ch) {
   
   resetPktStats();
 
-  // In AP mode the radio stays on the AP's channel; we capture all traffic and filter in software
   esp_wifi_set_promiscuous_rx_cb(sniffer);
   esp_wifi_set_promiscuous(true);
-  
+
   if (ch > 0 && ch <= 13) {
     esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
   }

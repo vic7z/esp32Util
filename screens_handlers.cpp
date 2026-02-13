@@ -26,7 +26,7 @@ extern bool apSortedOnce;
 
 extern uint8_t bleCursor, bleScroll, bleSelectedIndex;
 
-extern volatile uint32_t pktTotal, pktBeacon, pktData, pktDeauth;
+extern volatile uint32_t pktTotal, pktBeacon, pktData, pktDeauth, pktProbe;
 
 extern uint32_t lastPkt;
 extern float smoothPps;
@@ -40,6 +40,8 @@ extern uint32_t chPackets[MAX_CHANNEL + 1];
 
 extern uint32_t chBeacons[MAX_CHANNEL + 1];
 extern uint32_t chDeauth[MAX_CHANNEL + 1];
+extern uint32_t chData[MAX_CHANNEL + 1];
+extern uint32_t chProbe[MAX_CHANNEL + 1];
 
 extern uint8_t hiddenCursor, hiddenScroll;
 
@@ -454,8 +456,10 @@ void handleAnalyzer(ButtonEvent ev) {
     chPackets[scanState.analyzerChannel] += pktTotal;
     chBeacons[scanState.analyzerChannel] += pktBeacon;
     chDeauth[scanState.analyzerChannel] += pktDeauth;
+    chData[scanState.analyzerChannel] += pktData;
+    chProbe[scanState.analyzerChannel] += pktProbe;
 
-    pktTotal = pktBeacon = pktDeauth = 0;
+    pktTotal = pktBeacon = pktData = pktDeauth = pktProbe = 0;
     scanState.analyzerChannel = scanState.analyzerChannel % MAX_CHANNEL + 1;
     enterSnifferMode(scanState.analyzerChannel);
     scanState.analyzerLastHop = millis();

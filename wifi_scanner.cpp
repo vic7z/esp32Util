@@ -15,6 +15,8 @@ float avgRssi = -80;
 uint32_t chPackets[MAX_CHANNEL + 1];
 uint32_t chBeacons[MAX_CHANNEL + 1];
 uint32_t chDeauth[MAX_CHANNEL + 1];
+uint32_t chData[MAX_CHANNEL + 1];
+uint32_t chProbe[MAX_CHANNEL + 1];
 
 
 wifi_ap_record_t apList[MAX_APS];
@@ -99,7 +101,15 @@ void enterSnifferMode(uint8_t ch) {
   delay(50);
 
   esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
+
   esp_wifi_set_promiscuous_rx_cb(sniffer);
+
+  // Explicitly enable all packet types including data frames
+  wifi_promiscuous_filter_t filter = {
+    .filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_DATA | WIFI_PROMIS_FILTER_MASK_CTRL
+  };
+  esp_wifi_set_promiscuous_filter(&filter);
+
   esp_wifi_set_promiscuous(true);
   snifferRunning = true;
 }
@@ -111,7 +121,7 @@ void enterScanMode() {
 }
 
 void resetLiveStats() {
-  pktTotal = pktBeacon = pktData = pktDeauth = 0;
+  pktTotal = pktBeacon = pktData = pktDeauth = pktProbe = 0;
   rssiAccum = rssiCount = 0;
   pps = peak = lastPkt = 0;
   smoothPps = 0;
@@ -124,6 +134,9 @@ void resetAnalyzer() {
   memset(chPackets, 0, sizeof(chPackets));
   memset(chBeacons, 0, sizeof(chBeacons));
   memset(chDeauth, 0, sizeof(chDeauth));
+  memset(chData, 0, sizeof(chData));
+  memset(chProbe, 0, sizeof(chProbe));
+  pktTotal = pktBeacon = pktData = pktDeauth = pktProbe = 0;
   scanState.analyzerChannel = 1;
   scanState.analyzerLastHop = millis();
 }
@@ -213,7 +226,10 @@ const char* channelInsight() {
 }
 
 uint8_t channelLoad(uint8_t ch) {
-  uint32_t score = chPackets[ch] + chBeacons[ch] / 2 + chDeauth[ch] * 3;
+  // chPackets = total (includes beacons, data, probes, deauth, other)
+  // Weight: data/probes/other at 1x, beacons at 0.5x, deauth at 3x
+  uint32_t other = chPackets[ch] - chBeacons[ch] - chDeauth[ch];
+  uint32_t score = other + chBeacons[ch] / 2 + chDeauth[ch] * 3;
   return min(score / 5, 100UL);
 }
 
@@ -285,10 +301,6 @@ void IRAM_ATTR sniffer(void* buf, wifi_promiscuous_pkt_type_t type) {
   rssiAccum += p->rx_ctrl.rssi;
   rssiCount++;
   
-  if (ch >= 1 && ch <= MAX_CHANNEL) {
-    chPackets[ch]++;
-  }
-  
   uint8_t st = 0;
   uint8_t pktType = 0;
   char ssidStr[33] = {0};
@@ -305,7 +317,6 @@ void IRAM_ATTR sniffer(void* buf, wifi_promiscuous_pkt_type_t type) {
       if (st == 0x08) { // Beacon
         pktBeacon++;
         pktType = 3;
-        if (ch >= 1 && ch <= MAX_CHANNEL) chBeacons[ch]++;
 
         if (p->rx_ctrl.sig_len > 38) {
           uint16_t offset = 36;
@@ -321,15 +332,15 @@ void IRAM_ATTR sniffer(void* buf, wifi_promiscuous_pkt_type_t type) {
             if (elemLen == 0) break;
           }
         }
-      } else if (st == 0x04) { // Probe
+      } else if (st == 0x04 || st == 0x05) { // Probe request or response
         pktProbe++;
         pktType = 4;
-        if (p->payload && p->rx_ctrl.sig_len > 26) {
+        if (st == 0x04 && p->payload && p->rx_ctrl.sig_len > 26) {
           uint8_t ssidLen = p->payload[25];
           if (ssidLen > 0 && ssidLen <= 32) {
             memcpy(ssidStr, &p->payload[26], ssidLen);
             ssidStr[ssidLen] = 0;
-            
+
             bool found = false;
             for (int i = 0; i < hiddenCount; i++) {
               if (strcmp(hiddenList[i].ssid, ssidStr) == 0) {
@@ -353,7 +364,6 @@ void IRAM_ATTR sniffer(void* buf, wifi_promiscuous_pkt_type_t type) {
         totalDeauthDetected++;
         deauthChannel = ch;
         pktType = 2;
-        if (ch >= 1 && ch <= MAX_CHANNEL) chDeauth[ch]++;
       } else {
         pktType = 0;
       }

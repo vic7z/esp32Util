@@ -15,7 +15,7 @@ extern uint8_t histIdx;
 extern uint8_t currentChannel, selectedChannel, analyzerChannel;
 extern float avgRssi;
 extern bool frozen;
-extern volatile uint32_t pktBeacon, pktData, pktDeauth, pktTotal;
+extern volatile uint32_t pktBeacon, pktData, pktDeauth, pktTotal, pktProbe;
 extern uint32_t deauthPerSecond, totalDeauthDetected;
 extern bool attackActive;
 extern uint8_t apCursor, apScroll, apSelectedIndex;
@@ -121,7 +121,7 @@ void drawMonitor() {
 
     oled.setFont(u8g2_font_4x6_tf);
     oled.setCursor(0, 20);
-    oled.printf("B:%lu D:%lu X:%lu", pktBeacon, pktData, pktDeauth);
+    oled.printf("B:%lu D:%lu P:%lu X:%lu", pktBeacon, pktData, pktProbe, pktDeauth);
 
     int rssiBar = constrain((int)avgRssi + 100, 0, 50);
     oled.drawRFrame(0, 22, 52, 6, 1);
@@ -138,11 +138,18 @@ void drawMonitor() {
 
     drawGrid(0, graphY, 128, graphH);
 
+    // Dynamic Y-axis: scale to the max value currently visible in the history window
+    uint32_t visibleMax = 1;
+    for (int x = 0; x < 128; x++) {
+      int idx = (histIdx + x) % HISTORY_SIZE;
+      if (history[idx] > visibleMax) visibleMax = history[idx];
+    }
+
     for (int x = 0; x < 128; x++) {
       int idx = (histIdx + x) % HISTORY_SIZE;
       uint32_t val = history[idx];
       int barHeight = 0;
-      if (peak > 0) barHeight = (val * graphH) / peak;
+      barHeight = (val * graphH) / visibleMax;
 
       if (barHeight > 0) {
         int solidHeight = barHeight / 3;

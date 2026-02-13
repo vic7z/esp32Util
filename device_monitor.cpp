@@ -168,6 +168,7 @@ void startDeviceMonitorSniffer() {
   esp_wifi_set_mode(WIFI_MODE_NULL);
   esp_wifi_start();
   esp_wifi_set_channel(monitorChannel, WIFI_SECOND_CHAN_NONE);
+
   esp_wifi_set_promiscuous_rx_cb(deviceMonitorSniffer);
   esp_wifi_set_promiscuous(true);
 }

@@ -18,6 +18,8 @@ extern bool signalAlert;
 extern uint32_t chPackets[MAX_CHANNEL + 1];
 extern uint32_t chBeacons[MAX_CHANNEL + 1];
 extern uint32_t chDeauth[MAX_CHANNEL + 1];
+extern uint32_t chData[MAX_CHANNEL + 1];
+extern uint32_t chProbe[MAX_CHANNEL + 1];
 
 extern wifi_ap_record_t apList[MAX_APS];
 extern uint16_t apCount;
