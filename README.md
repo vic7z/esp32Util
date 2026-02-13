@@ -1,13 +1,22 @@
 # ESP32 Pocket RF Tool
 
-WiFi and BLE scanner, security monitor, and diagnostics tool for ESP32.
+WiFi and BLE scanner, security monitor, and RF diagnostics tool for ESP32.
 
-![Version](https://img.shields.io/badge/version-v2.0.0-blue)
+![Version](https://img.shields.io/badge/version-v2.0.1-blue)
 ![Platform](https://img.shields.io/badge/platform-ESP32%2C%20ESP32--C3%2C%20ESP32--S2-green)
 
-## What it does
+## Features
 
-Scans WiFi networks and BLE devices, monitors for deauth attacks and rogue APs, analyzes channel usage, and tracks signal strength — all from a pocket-sized ESP32 with a 128x64 OLED. v2.0 adds a built-in web server so you can view everything from your phone too.
+- **WiFi Scanning** — detect and list nearby access points with SSID, BSSID, channel, RSSI, security type, vendor, estimated distance, and signal quality grade (A-F)
+- **BLE Scanning** — discover Bluetooth Low Energy devices with name, address, RSSI, and advertisement type (Generic, iBeacon, Eddystone)
+- **Security Monitoring** — real-time deauthentication attack detection, rogue AP (evil twin) detection, and BLE tracker identification
+- **Channel Analysis** — per-channel traffic breakdown across all 13 channels with overlap detection and best channel recommendation
+- **Client Tracking** — passive WiFi client detection via packet sniffing (probe requests, association frames, data frames) with vendor lookup
+- **Walk Tests** — RSSI signal strength tracking over time for both WiFi APs and BLE devices, with live graph and min/max/avg stats
+- **RF Health Scoring** — environment health assessment with congestion percentage, quality rating, and actionable insights
+- **Web Interface** — full-featured responsive web UI accessible from any phone or laptop over WiFi, with dark/light theme
+- **Deep Sleep** — true deep sleep mode (~5uA) for battery-powered operation
+- **NeoPixel Status LED** — color-coded RF status at a glance
 
 ## Hardware
 
@@ -28,51 +37,91 @@ Runs on ESP32, ESP32-S2, and ESP32-C3. Default pin config is for a Waveshare ESP
 
 ## OLED Menu
 
+The device has a hierarchical menu system with 11 main items and 4 submenus, all navigated with two buttons.
+
 ### Main Menu
-- **Auto Watch** — combined WiFi/BLE/deauth monitoring with 4 views (summary, top APs, top BLE, channel APs), auto channel hopping
-- **RF Health** — environment health score with congestion and signal quality. Long press for RSSI graph
-- **Live Monitor** — real-time packet capture: packets/sec, RSSI, beacon/data/deauth breakdown
-- **Channel Analyzer** — per-channel traffic analysis across all 13 channels
-- **Device Monitor** — tracks WiFi clients (via sniffing) and BLE devices over time, shows MAC, vendor, presence status
-- **AP Scanner** — list APs with detail view, walk test (RSSI tracking with graph), side-by-side compare
-- **BLE Monitor** — list BLE devices with detail view and walk test
 
-### Security
-- **Deauth Watch** — real-time deauth packet counting with configurable alert threshold
-- **Rogue AP Watch** — detects evil twin APs (same SSID, different BSSID)
-- **BLE Tracker Watch** — flags suspicious BLE tracking devices
-- **Alert Settings** — deauth threshold (5-20 pkt/s), screen timeout
+**Auto Watch** — combined WiFi, BLE, and deauth monitoring on a single screen. Cycles through 4 views: summary (AP count, BLE count, deauth count), top APs by signal strength, top BLE devices, and APs on the current channel. Auto channel hopping captures traffic across all 13 channels.
 
-### Insights
-- **Why Is It Slow?** — diagnoses WiFi issues, shows channel congestion. Long press to toggle RSSI graph of top 3 APs
-- **Channel Recommendation** — finds the least congested channel
-- **Environment Change** — compare current RF environment vs a saved baseline
+**RF Health** — overall environment health score showing RF load percentage, quality rating (Good/OK/Busy/Avoid), and a text insight (e.g., "Heavy Traffic", "Very Clean", "Possible Attack"). Long press toggles a full-screen RSSI graph tracking average signal strength over 60 samples.
 
-### History
-- **Event Log** — timestamped security/system events (up to 10)
-- **Baseline Compare** — AP count, RSSI, and packet count changes over time
+**Live Monitor** — real-time packet capture display showing packets per second, smoothed PPS, average RSSI, and a breakdown of beacon, data, and deauth frame counts. Useful for diagnosing interference and attacks.
 
-### System
-- **Battery & Power** — uptime, free RAM, flash size
-- **Display** — RGB brightness (0-100%), screen timeout
-- **Radio Control** — manual channel selection (1-13)
-- **About** — firmware version and build date
+**Channel Analyzer** — scans all 13 channels and displays a bar chart of traffic per channel. Highlights the best channel (lowest traffic) and marks congested channels. Shows channel number labels and overlap indicators.
+
+**Device Monitor** — tracks WiFi clients and BLE devices over time. WiFi clients are detected passively via promiscuous mode sniffing (probe requests, association requests, data frames). Each device shows type (C=Client, B=BLE), name or vendor, MAC address, RSSI, presence status (+/-), first/last seen times, and total times seen. Supports up to 15 tracked devices with a 30-second timeout.
+
+**AP Scanner** — lists detected WiFi access points sorted by signal strength. Each entry shows signal bars, SSID, BSSID, channel, RSSI, and security type (Open/WEP/WPA2). Select an AP for a detail view with vendor, estimated distance, and signal grade. From the detail view you can start a walk test or compare two APs side by side.
+
+**BLE Monitor** — lists detected BLE devices sorted by signal strength. Each entry shows name (or "Unknown"), address, RSSI, and advertisement type. Select a device for details or start a BLE walk test to track its signal over time.
+
+### Security Submenu
+
+**Deauth Watch** — monitors for deauthentication and disassociation frames in real time. Displays deauth packets per second with a configurable alert threshold. Triggers a red LED and logs a security event when an attack is detected.
+
+**Rogue AP Watch** — detects evil twin access points by finding multiple BSSIDs advertising the same SSID. Lists detected rogues with both BSSIDs for investigation.
+
+**BLE Tracker Watch** — identifies suspicious BLE devices that may be tracking you (e.g., AirTags, Tiles). Flags devices that appear consistently across scans.
+
+**Alert Settings** — configure deauth alert threshold (5-20 packets/second) and screen timeout duration.
+
+### Insights Submenu
+
+**Why Is It Slow?** — diagnoses WiFi performance issues by analyzing channel congestion, nearby AP count, and signal quality. Provides a text explanation of likely causes. Long press toggles an RSSI graph tracking the top 3 strongest APs over 50 samples.
+
+**Channel Recommendation** — scans all channels and recommends the least congested one. Prioritizes non-overlapping channels (1, 6, 11) and shows the AP count per channel.
+
+**Environment Change** — compares the current RF environment against a saved baseline snapshot. Shows differences in AP count, average RSSI, channel distribution, and total packet count.
+
+### History Submenu
+
+**Event Log** — timestamped log of security and system events (deauth attacks, rogue APs, tracker alerts). Stores the last 10 events with scrollable list view.
+
+**Baseline Compare** — shows AP count, RSSI, and packet count changes between the current snapshot and a previously saved baseline.
+
+### System Submenu
+
+**Battery & Power** — displays uptime, free RAM, flash size, and power-related metrics.
+
+**Display** — adjust RGB LED brightness (0-100%) and screen timeout setting.
+
+**Radio Control** — manually select a WiFi channel (1-13) for targeted monitoring.
+
+**About** — shows firmware version and build date.
 
 ## Web Server
 
-Start from the main menu. The ESP32 creates a WiFi AP you connect to from your phone/laptop:
+Start the web server from the main menu. The ESP32 creates a WiFi access point you connect to from your phone or laptop:
 
-- SSID: `ESP32-Tool` / Password: `12345678`
-- URL: `http://esp32.util` or `http://192.168.4.1`
+- **SSID**: `ESP32-Tool` (configurable)
+- **Password**: `12345678` (configurable)
+- **URL**: `http://esp32.util` or `http://192.168.4.1`
 
-The web UI has:
-- **Dashboard** — live WiFi/BLE device counts, security status, channel recommendation, signal history graph
-- **WiFi Networks** — all detected APs with filters (all/open/secure), sortable, click for details (vendor, channel, signal quality, estimated distance, security). CSV export
-- **BLE Devices** — detected BLE devices with filters (all/trackers/beacons), click for details. CSV export
-- **Analyzer** — live channel usage bar chart, spectrum view, channel stats, best channel recommendation
-- **Security** — deauth attack graph, rogue AP detection, BLE tracker count, event log. JSON export
-- **Tools** — signal tracker for specific APs, full scan trigger, data export (JSON/CSV)
-- **Settings** — configure scan speed, RSSI threshold, brightness, timeouts, power mode
+The web UI is a responsive single-page app with dark and light themes, stored on SPIFFS.
+
+### Dashboard
+Live overview with 6 stat cards (WiFi count, BLE count, alerts, best channel, RF load, uptime), a signal history chart, channel distribution bars, session stats (total APs found, peak PPS, total packets, deauth count), and RF health summary.
+
+### WiFi Tab
+Table of all detected access points with signal bars, SSID, BSSID, channel, RSSI, security badge (Open/WEP/WPA2), and quality grade (A-F). Click any row for a detail modal showing vendor, estimated distance, and a button to start a walk test. Walk test shows live RSSI graph with current/min/max/avg stats. Hidden networks shown in a separate table when detected. Scan and Clear buttons for manual control.
+
+### BLE Tab
+Table of all detected BLE devices with signal bars, name, address, RSSI, and type (Generic/iBeacon/Eddystone). Click any row for a detail modal. BLE scanning runs automatically in the background.
+
+### Analyzer Tab
+Channel usage bar chart (click any bar to open the packet monitor), best channel recommendation cards for channels 1/6/11, channel overlap visualization, and environment baseline tools (take snapshot, save baseline, compare).
+
+### Packet Monitor
+Opens when you click a channel bar in the Analyzer. Shows real-time per-channel packet capture with stats (total, beacons, data, probes, deauth, PPS, peak PPS), a live PPS graph, unique device count, and a toggleable packet log with per-packet details (timestamp, type, SSID, BSSID, channel, RSSI). Channel navigation buttons to switch between channels. Export captured packets as CSV.
+
+### Security Tab
+Three stat cards (deauth count, rogue APs, trackers), rogue AP detail list, security event log, and encryption breakdown bar chart (WPA3/WPA2/WPA/WEP/Open).
+
+### Clients Tab
+Real-time client monitor table showing device type (C=WiFi Client, B=BLE), name/vendor, MAC address, channel, RSSI, presence indicator (+/-), and times seen. Start/Stop button to control promiscuous mode sniffing. Clear button to reset the device list.
+
+### Settings Tab
+Configure scan speed (Fast/Normal/Thorough), RSSI threshold, RGB brightness, screen timeout, deauth threshold, power mode (Balanced/Performance/Power Save), and WiFi AP name/password (requires restart).
 
 ## LED Colors
 
@@ -120,7 +169,7 @@ arduino-cli upload -p COM3 --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app .
 
 ### Flashing the Web UI (SPIFFS)
 
-The web UI lives in `data/index.html` and gets flashed to SPIFFS separately from firmware:
+The web UI lives in the `data/` folder (index.html, app.js, style.css) and gets flashed to SPIFFS separately from firmware:
 
 ```bash
 # build SPIFFS image
@@ -152,7 +201,11 @@ After flashing new firmware, re-flash the SPIFFS image if it got erased — they
 
 **Can't connect to web interface** — connect to `ESP32-Tool` WiFi (password: `12345678`), then try `http://192.168.4.1` if the hostname doesn't resolve.
 
+**Client monitor not detecting devices** — make sure no WiFi scan is running simultaneously. The monitor uses promiscuous mode which is paused during scans.
+
 ## Version History
+
+**v2.0.1** (2026-02-14) — Fixed web UI not loading scan data (float/int format mismatch in JSON serialization). Fixed client monitor dying permanently when a background WiFi scan failed (scan failure left promiscuous mode disabled). Increased API JSON buffer to 8KB. Auto-scan now pauses while client monitor is active.
 
 **v2.0.0** (2026-02-13) — Web server with full web UI (dashboard, analyzer, security, tools, settings). Accessible from main menu.
 
