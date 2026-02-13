@@ -2,7 +2,7 @@
 #include "security.h"
 #include "utils.h"
 
-volatile uint32_t pktTotal = 0, pktBeacon = 0, pktData = 0, pktDeauth = 0;
+volatile uint32_t pktTotal = 0, pktBeacon = 0, pktData = 0, pktDeauth = 0, pktProbe = 0;
 volatile int32_t rssiAccum = 0;
 volatile uint32_t rssiCount = 0;
 uint32_t history[HISTORY_SIZE];
@@ -10,16 +10,12 @@ uint8_t histIdx = 0;
 uint32_t pps = 0, peak = 0, lastPkt = 0;
 float smoothPps = 0;
 float avgRssi = -80;
-// bool frozen = false; // REMOVED
-// uint8_t currentChannel = 1; // REMOVED
-// uint32_t lastSecond = 0; // REMOVED
+
 
 uint32_t chPackets[MAX_CHANNEL + 1];
 uint32_t chBeacons[MAX_CHANNEL + 1];
 uint32_t chDeauth[MAX_CHANNEL + 1];
-// uint8_t analyzerChannel = 1; // REMOVED
-// uint8_t selectedChannel = 1; // REMOVED
-// uint32_t analyzerLastHop = 0; // REMOVED
+
 
 wifi_ap_record_t apList[MAX_APS];
 uint16_t apCount = 0;
@@ -28,7 +24,7 @@ uint8_t apScroll = 0;
 uint8_t apSelectedIndex = 0;
 uint8_t apCompareA = 0;
 uint8_t apCompareB = 1;
-// uint32_t lastScan = 0; // REMOVED
+
 bool apSortedOnce = false;
 
 
@@ -47,7 +43,6 @@ uint32_t totalPackets = 0;
 uint32_t loggedPackets = 0;
 bool loggingActive = false;
 
-// Packet log buffer for web UI
 PacketLog pktLogBuffer[MAX_PKT_LOG];
 uint8_t pktLogIndex = 0;
 uint8_t pktLogCount = 0;
@@ -59,6 +54,9 @@ uint32_t lastDeauthCheck = 0;
 bool attackActive = false;
 uint8_t deauthChannel = 0;
 
+uint32_t beaconPps = 0;
+uint32_t deauthPps = 0;
+
 void initWiFi() {
   nvs_flash_init();
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -68,12 +66,25 @@ void initWiFi() {
 void stopAllWifi() {
   esp_wifi_scan_stop();
   esp_wifi_set_promiscuous(false);
+  extern bool snifferActive;
+  extern uint8_t snifferChannel;
+  snifferActive = false;
+  snifferChannel = 0;
 }
 
 void enterSnifferMode(uint8_t ch) {
   stopAllWifi();
+
+  esp_err_t err = esp_wifi_stop();
+  delay(150);
+
   esp_wifi_set_mode(WIFI_MODE_NULL);
-  esp_wifi_start();
+
+  err = esp_wifi_start();
+  if (err != ESP_OK) return;
+
+  delay(50);
+
   esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
   esp_wifi_set_promiscuous_rx_cb(sniffer);
   esp_wifi_set_promiscuous(true);
@@ -160,7 +171,10 @@ void fetchApResults(bool forceSort) {
 }
 
 uint8_t liveLoad() {
-  uint32_t score = pps + pktBeacon / 2 + pktDeauth * 3;
+  // Use per-second rates, not cumulative totals.  pktBeacon/pktDeauth are
+  // cumulative and grow without bound, which previously pegged load at 100%
+  // after only a few minutes of sniffing.
+  uint32_t score = pps + beaconPps / 2 + deauthPps * 3;
   return min(score / 5, 100UL);
 }
 
@@ -210,6 +224,19 @@ uint8_t bestChannel() {
   return best;
 }
 
+uint8_t worstChannel() {
+  uint8_t worst = 1;
+  uint8_t worstScore = 0;
+  for (int ch = 1; ch <= MAX_CHANNEL; ch++) {
+    uint8_t s = channelLoad(ch);
+    if (s > worstScore && chPackets[ch] > 0) {
+      worstScore = s;
+      worst = ch;
+    }
+  }
+  return worst;
+}
+
 uint8_t bestAPIndex() {
   uint8_t bestIdx = 0;
   char bestGrade = 'F';
@@ -223,17 +250,20 @@ uint8_t bestAPIndex() {
   return bestIdx;
 }
 
-extern uint8_t snifferChannel; // From web_server.cpp - 0 = all channels, 1-13 = specific channel
+extern uint8_t snifferChannel;
+extern bool    snifferActive;
+extern uint8_t ownApMac[6];
 
 void IRAM_ATTR sniffer(void* buf, wifi_promiscuous_pkt_type_t type) {
   const wifi_promiscuous_pkt_t* p = (wifi_promiscuous_pkt_t*)buf;
-  
-  // Get packet channel
+
   uint8_t ch = p->rx_ctrl.channel;
-  
-  // Filter: only count packets on the selected channel (if specific channel is set)
-  if (snifferChannel > 0 && snifferChannel <= 13 && ch != snifferChannel) {
-    return; // Skip packets from other channels
+
+  // Filter out own AP traffic in web-server sniffer mode
+  if (snifferActive && ownApMac[0] != 0 && p->rx_ctrl.sig_len >= 16) {
+    const uint8_t* addr1 = (const uint8_t*)&p->payload[4];
+    const uint8_t* addr2 = (const uint8_t*)&p->payload[10];
+    if (memcmp(addr2, ownApMac, 6) == 0 || memcmp(addr1, ownApMac, 6) == 0) return;
   }
 
   pktTotal++;
@@ -254,20 +284,16 @@ void IRAM_ATTR sniffer(void* buf, wifi_promiscuous_pkt_type_t type) {
     if (p->payload) {
       st = (p->payload[0] >> 4) & 0x0F;
       
-      // Extract BSSID (addr3 for most management frames)
       if (p->rx_ctrl.sig_len >= 24) {
-        bssid = (uint8_t*)&p->payload[16]; // BSSID is at offset 16 for beacon/probe
+        bssid = (uint8_t*)&p->payload[16];
       }
       
       if (st == 0x08) { // Beacon
         pktBeacon++;
-        pktType = 3; // beacon type
+        pktType = 3;
         if (ch >= 1 && ch <= MAX_CHANNEL) chBeacons[ch]++;
-        
-        // Extract SSID from beacon (offset 36 usually)
+
         if (p->rx_ctrl.sig_len > 38) {
-          // SSID element starts after frame control(2)+duration(2)+addr1(6)+addr2(6)+addr3(6)+seq(2)+timestamp(8)+interval(2)+cap(2) = 36
-          // Then element ID (1) + length (1) + SSID
           uint16_t offset = 36;
           while (offset < p->rx_ctrl.sig_len - 2) {
             uint8_t elemId = p->payload[offset];
@@ -281,7 +307,8 @@ void IRAM_ATTR sniffer(void* buf, wifi_promiscuous_pkt_type_t type) {
             if (elemLen == 0) break;
           }
         }
-      } else if (st == 0x04) { // Probe Request
+      } else if (st == 0x04) { // Probe
+        pktProbe++;
         pktType = 4;
         if (p->payload && p->rx_ctrl.sig_len > 26) {
           uint8_t ssidLen = p->payload[25];
@@ -289,7 +316,6 @@ void IRAM_ATTR sniffer(void* buf, wifi_promiscuous_pkt_type_t type) {
             memcpy(ssidStr, &p->payload[26], ssidLen);
             ssidStr[ssidLen] = 0;
             
-            // Add to hidden list
             bool found = false;
             for (int i = 0; i < hiddenCount; i++) {
               if (strcmp(hiddenList[i].ssid, ssidStr) == 0) {
@@ -312,19 +338,17 @@ void IRAM_ATTR sniffer(void* buf, wifi_promiscuous_pkt_type_t type) {
         pktDeauth++;
         totalDeauthDetected++;
         deauthChannel = ch;
-        pktType = 2; // deauth
+        pktType = 2;
         if (ch >= 1 && ch <= MAX_CHANNEL) chDeauth[ch]++;
       } else {
-        pktType = 0; // other mgmt
+        pktType = 0;
       }
     }
   } else if (type == WIFI_PKT_DATA) {
     pktData++;
-    pktType = 1; // data
+    pktType = 1;
   }
-  
-  // Log to packet buffer (not in IRAM, so we need to be careful)
-  // Only log every 5th packet to reduce overhead
+
   if (pktTotal % 5 == 0) {
     PacketLog* pl = &pktLogBuffer[pktLogIndex];
     pl->timestamp = millis();

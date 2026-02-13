@@ -59,9 +59,47 @@ void drawGrid(uint8_t x0, uint8_t y0, uint8_t width, uint8_t height) {
   }
 }
 
+// ── Modern UI helpers ──────────────────────────────────────────────
+
+void drawHeader(const char* title) {
+  oled.drawRBox(0, 0, 128, 12, 2);
+  oled.setFont(u8g2_font_5x7_tf);
+  uint8_t w = oled.getStrWidth(title);
+  uint8_t x = (128 - w) / 2;
+  oled.setDrawColor(0);
+  oled.drawStr(x, 9, title);
+  oled.setDrawColor(1);
+}
+
+void drawFooterPill(uint8_t x, const char* label) {
+  oled.setFont(u8g2_font_4x6_tf);
+  uint8_t w = oled.getStrWidth(label);
+  oled.drawRFrame(x, 55, w + 6, 9, 2);
+  oled.drawStr(x + 3, 62, label);
+}
+
+void drawFooter(const char* left, const char* right) {
+  oled.drawLine(0, 53, 127, 53);
+  if (left && strlen(left) > 0) {
+    drawFooterPill(1, left);
+  }
+  if (right && strlen(right) > 0) {
+    oled.setFont(u8g2_font_4x6_tf);
+    uint8_t w = oled.getStrWidth(right);
+    drawFooterPill(127 - w - 7, right);
+  }
+}
+
+void drawScrollDots(uint8_t scroll, uint16_t count, uint8_t visible) {
+  if (scroll > 0) oled.drawDisc(124, 16, 1);
+  if (scroll + visible < count) oled.drawDisc(124, 51, 1);
+}
+
+// ── Pattern bars ──────────────────────────────────────────────────
+
 void drawPatternBar(uint8_t x, uint8_t y, uint8_t width, uint8_t height, uint8_t load) {
   if (height == 0) return;
-  oled.drawFrame(x, y, width, height);
+  oled.drawRFrame(x, y, width, height, 1);
 
   if (load < 20) {
     for (int py = y + 1; py < y + height - 1; py++) {

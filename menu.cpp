@@ -11,8 +11,8 @@ const char* mainMenuItems[] = {
   "Security",
   "Insights",
   "History",
-  "System",
-  "Web Server"
+  "Web Server",
+  "System"
 };
 uint8_t mainMenuIndex = 0;
 const uint8_t MAIN_MENU_SIZE = 12;
@@ -49,7 +49,8 @@ const char* systemMenuItems[] = {
   "Display",
   "Radio Control",
   "Power Mode",
-  "About"
+  "About",
+  "Restart"
 };
 uint8_t systemMenuIndex = 0;
-const uint8_t SYSTEM_MENU_SIZE = 5;
+const uint8_t SYSTEM_MENU_SIZE = 6;

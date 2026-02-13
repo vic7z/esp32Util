@@ -14,7 +14,6 @@ void loadSettings() {
   settings.screenTimeout = prefs.getUShort("screenTimeout", 60);
   settings.powerMode = prefs.getUChar("powerMode", 0);
   
-  // Load AP settings with defaults
   String ssid = prefs.getString("apSSID", "ESP32-Tool");
   String pass = prefs.getString("apPass", "");
   strncpy(settings.apSSID, ssid.c_str(), 32);

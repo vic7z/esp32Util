@@ -1,3 +1,4 @@
+#include <esp_system.h>
 #include "screens_handlers.h"
 #include "screens_draw.h"
 #include "wifi_scanner.h"
@@ -14,23 +15,17 @@
 
 extern Screen currentScreen;
 
-
-// extern uint32_t lastScan; // REMOVED
-// extern uint32_t lastSecond; // REMOVED
-// extern uint32_t lastEnvCheck; // REMOVED
-// extern uint32_t lastBaselineUpdate; // REMOVED
-// extern uint32_t lastBLESort; // REMOVED
-
 extern uint8_t apCursor, apScroll, apSelectedIndex;
-
+extern uint8_t rfHealthView;
+extern int8_t rfHealthRSSIHistory[60];
+extern uint8_t rfHealthHistoryIndex;
+extern int8_t rfHealthMinRSSI, rfHealthMaxRSSI;
 
 extern uint8_t apCompareA, apCompareB;
 extern bool apSortedOnce;
 
 extern uint8_t bleCursor, bleScroll, bleSelectedIndex;
 
-// extern uint8_t currentChannel, selectedChannel, analyzerChannel; // REMOVED
-// extern bool frozen; // REMOVED
 extern volatile uint32_t pktTotal, pktBeacon, pktData, pktDeauth;
 
 extern uint32_t lastPkt;
@@ -41,7 +36,6 @@ extern uint8_t histIdx;
 extern float avgRssi;
 extern volatile int32_t rssiAccum;
 extern volatile uint32_t rssiCount;
-// extern uint32_t analyzerLastHop; // REMOVED
 extern uint32_t chPackets[MAX_CHANNEL + 1];
 
 extern uint32_t chBeacons[MAX_CHANNEL + 1];
@@ -49,13 +43,8 @@ extern uint32_t chDeauth[MAX_CHANNEL + 1];
 
 extern uint8_t hiddenCursor, hiddenScroll;
 
-// extern uint16_t autoTotalAPs, autoTotalBLE; // REMOVED
-// extern uint8_t autoModeView; // REMOVED
-
-// Walk Test externs REMOVED
-
-
 extern uint8_t whySlowView;
+extern uint8_t whySlowApIdx;
 extern RSSIHistory rssiHistory[MAX_TRACKED_APS];
 extern uint32_t lastRSSISample;
 
@@ -93,6 +82,8 @@ void handleMainMenu(ButtonEvent ev) {
       case 1:
         currentScreen = SCREEN_RF_HEALTH;
         stopAllWifi();
+        startBLEScan();
+        scanState.lastScan = 0;
         break;
       case 2:
         currentScreen = SCREEN_MONITOR;
@@ -148,20 +139,19 @@ void handleMainMenu(ButtonEvent ev) {
         drawHistoryMenu();
         break;
       case 10:
+        currentScreen = SCREEN_WEB_SERVER;
+        startWebServer();
+        drawWebServer();
+        break;
+      case 11:
         currentScreen = SCREEN_SYSTEM_MENU;
         systemMenuIndex = 0;
         stopAllWifi();
         drawSystemMenu();
         break;
-      case 11:
-        currentScreen = SCREEN_WEB_SERVER;
-        startWebServer();
-        drawWebServer();
-        break;
     }
   }
 }
-
 
 void handleSecurityMenu(ButtonEvent ev) {
   if (ev == BTN_SHORT) {
@@ -216,11 +206,11 @@ void handleInsightsMenu(ButtonEvent ev) {
         break;
       case 3:
         currentScreen = SCREEN_QUICK_SNAPSHOT;
-        scanState.lastScan = 0;  // Force immediate scan
+        scanState.lastScan = 0;
         break;
       case 4:
         currentScreen = SCREEN_CHANNEL_SCORECARD;
-        scanState.lastScan = 0;  // Force immediate scan
+        scanState.lastScan = 0;
         break;
 
     }
@@ -280,6 +270,9 @@ void handleSystemMenu(ButtonEvent ev) {
       case 4:
         currentScreen = SCREEN_ABOUT;
         break;
+      case 5:
+        esp_restart();
+        break;
     }
   }
   if (ev == BTN_BACK) {
@@ -290,8 +283,7 @@ void handleSystemMenu(ButtonEvent ev) {
 
 void handleAutoWatch(ButtonEvent ev) {
   if (ev == BTN_SHORT || ev == BTN_LONG) {
-    autoWatch.viewMode = (autoWatch.viewMode + 1) % 4;  // 4 views: Summary, Top APs, Top BLE, Channel APs
-    Serial.printf("[AUTO] View: %d\n", autoWatch.viewMode);
+    autoWatch.viewMode = (autoWatch.viewMode + 1) % 4;
     drawAutoWatch();
     return;
   }
@@ -309,7 +301,7 @@ void handleAutoWatch(ButtonEvent ev) {
   if (millis() - scanState.lastAutoWifiScan > 5000) {
     enterScanMode();
     startApScan();
-    delay(WIFI_SCAN_DELAY_MS);
+    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
     fetchApResults(true);
     autoWatch.totalAPs = apCount;
     scanState.lastAutoWifiScan = millis();
@@ -334,23 +326,53 @@ void handleAutoWatch(ButtonEvent ev) {
 }
 
 void handleRFHealth(ButtonEvent ev) {
-
-  if (millis() - scanState.lastScan > 3000) {
-    enterScanMode();
-    startApScan();
-    delay(WIFI_SCAN_DELAY_MS);
-    fetchApResults(false);
-    updateBLEScan();
-    scanState.lastScan = millis();
-  }
-
-
   if (ev == BTN_BACK) {
     currentScreen = SCREEN_MENU;
     stopAllWifi();
     stopBLEScan();
+    rfHealthView = 0;
     drawMenu();
     return;
+  }
+
+  if (ev == BTN_LONG) {
+    rfHealthView = (rfHealthView + 1) % 2;
+    drawRFHealth();
+    return;
+  }
+
+  updateBLEScan();
+
+  static uint32_t lastHistoryUpdate = 0;
+
+  if (millis() - scanState.lastScan > 3000) {
+    enterScanMode();
+    startApScan();
+    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
+    fetchApResults(false);
+    startBLEScan();
+    scanState.lastScan = millis();
+
+    if (millis() - lastHistoryUpdate > 2000) {
+      int avgRSSI = 0;
+      if (apCount > 0) {
+        long rssiSum = 0;
+        for (int i = 0; i < apCount; i++) {
+          rssiSum += apList[i].rssi;
+        }
+        avgRSSI = rssiSum / apCount;
+      } else {
+        avgRSSI = -100;
+      }
+
+      rfHealthRSSIHistory[rfHealthHistoryIndex] = (int8_t)avgRSSI;
+      rfHealthHistoryIndex = (rfHealthHistoryIndex + 1) % 60;
+
+      if (avgRSSI < rfHealthMinRSSI) rfHealthMinRSSI = avgRSSI;
+      if (avgRSSI > rfHealthMaxRSSI) rfHealthMaxRSSI = avgRSSI;
+
+      lastHistoryUpdate = millis();
+    }
   }
 
   drawRFHealth();
@@ -384,6 +406,13 @@ void handleMonitor(ButtonEvent ev) {
     history[histIdx] = pps;
     histIdx = (histIdx + 1) % HISTORY_SIZE;
 
+      static uint32_t lastBeaconPkt = 0;
+    static uint32_t lastDeauthPkt = 0;
+    beaconPps = (uint32_t)pktBeacon - lastBeaconPkt;
+    deauthPps = (uint32_t)pktDeauth - lastDeauthPkt;
+    lastBeaconPkt = (uint32_t)pktBeacon;
+    lastDeauthPkt = (uint32_t)pktDeauth;
+
     if (rssiCount) {
       float r = (float)rssiAccum / rssiCount;
       avgRssi = 0.8 * avgRssi + 0.2 * r;
@@ -395,8 +424,28 @@ void handleMonitor(ButtonEvent ev) {
   drawMonitor();
 }
 
-
 void handleAnalyzer(ButtonEvent ev) {
+  if (ev == BTN_BACK) {
+    currentScreen = SCREEN_MENU;
+    stopAllWifi();
+    drawMenu();
+    return;
+  }
+
+  if (ev == BTN_SHORT) {
+    scanState.selectedChannel = scanState.selectedChannel % MAX_CHANNEL + 1;
+  }
+
+  if (ev == BTN_LONG) {
+    scanState.currentChannel = scanState.selectedChannel;
+    currentScreen = SCREEN_MONITOR;
+    scanState.frozen = false;
+    resetLiveStats();
+    enterSnifferMode(scanState.currentChannel);
+    drawMonitor();
+    return;
+  }
+
   uint32_t hopDelay = 30;
   if (settings.scanSpeed == 0) hopDelay = 15;      // Fast
   else if (settings.scanSpeed == 2) hopDelay = 50;  // Slow
@@ -412,41 +461,27 @@ void handleAnalyzer(ButtonEvent ev) {
     scanState.analyzerLastHop = millis();
   }
 
-  if (ev == BTN_SHORT) {
-    scanState.selectedChannel = scanState.selectedChannel % MAX_CHANNEL + 1;
-  }
-
-  if (ev == BTN_LONG) {
-    scanState.currentChannel = scanState.selectedChannel;
-    currentScreen = SCREEN_MONITOR;
-    scanState.frozen = false;
-    resetLiveStats();
-    enterSnifferMode(scanState.currentChannel);
-  }
-
-  if (ev == BTN_BACK) {
-    currentScreen = SCREEN_MENU;
-    stopAllWifi();
-    drawMenu();
-    return;
-  }
-
   drawAnalyzer();
 }
 
-
 void handleDeviceMonitor(ButtonEvent ev) {
-  // Count active devices
   uint8_t activeCount = 0;
   for (int i = 0; i < MAX_MONITORED_DEVICES; i++) {
     if (monitoredDevices[i].active) activeCount++;
   }
 
+  if (activeCount == 0) {
+    deviceCursor = 0;
+    deviceScroll = 0;
+  } else {
+    if (deviceScroll >= activeCount) deviceScroll = activeCount - 1;
+    uint8_t maxCursor = min((uint8_t)2, (uint8_t)(activeCount - 1 - deviceScroll));
+    if (deviceCursor > maxCursor) deviceCursor = maxCursor;
+  }
+
   handleListNavigation(ev, deviceCursor, deviceScroll, activeCount, 3);
 
   if (ev == BTN_LONG && monitoredDeviceCount > 0) {
-
-    // Find the actual device index (skipping inactive slots)
     uint8_t activeIndex = 0;
     for (int i = 0; i < MAX_MONITORED_DEVICES; i++) {
       if (monitoredDevices[i].active) {
@@ -469,7 +504,6 @@ void handleDeviceMonitor(ButtonEvent ev) {
     return;
   }
 
-  // Update device monitor (channel hopping happens inside + BLE updates)
   updateDeviceMonitor();
   updateBLEScan();
 
@@ -488,7 +522,6 @@ void handleApList(ButtonEvent ev) {
   handleListNavigation(ev, apCursor, apScroll, apCount, AP_VISIBLE);
 
   if (ev == BTN_LONG && apCount > 0) {
-
     apSelectedIndex = apScroll + apCursor;
     currentScreen = SCREEN_AP_DETAIL;
   }
@@ -505,7 +538,6 @@ void handleApList(ButtonEvent ev) {
     startApScan();
     scanState.lastScan = millis();
   }
-
 
   drawApList();
 }
@@ -528,7 +560,7 @@ void handleApDetail(ButtonEvent ev) {
       walkTest.active = true;
       memset(walkTest.rssiHistory, 0, sizeof(walkTest.rssiHistory));
       currentScreen = SCREEN_AP_WALK_TEST;
-      scanState.lastScan = 0; // Force immediate scan
+      scanState.lastScan = 0;
     }
   }
   if (ev == BTN_BACK) {
@@ -537,8 +569,6 @@ void handleApDetail(ButtonEvent ev) {
   }
   drawApDetail();
 }
-
-
 
 void handleAPWalkTest(ButtonEvent ev) {
   if (ev == BTN_SHORT) {
@@ -551,7 +581,7 @@ void handleAPWalkTest(ButtonEvent ev) {
   if (millis() - scanState.lastScan > WIFI_SCAN_DELAY_MS) {
     enterScanMode();
     startApScan();
-    delay(WIFI_SCAN_DELAY_MS);
+    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
     fetchApResults(false);
 
     if (apCount > 0) {
@@ -627,7 +657,6 @@ void handleBLEScan(ButtonEvent ev) {
   handleListNavigation(ev, bleCursor, bleScroll, bleDeviceCount, BLE_VISIBLE);
 
   if (ev == BTN_LONG && bleDeviceCount > 0) {
-
     bleSelectedIndex = bleScroll + bleCursor;
     currentScreen = SCREEN_BLE_DETAIL;
     stopBLEScan();
@@ -647,8 +676,6 @@ void handleBLEScan(ButtonEvent ev) {
   if (bleDeviceCount > 1 && millis() - scanState.lastBLESort > BLE_SCAN_INTERVAL_MS) {
     sortBLEByRSSI();
     scanState.lastBLESort = millis();
-
-
 
     if (bleScroll + bleCursor >= bleDeviceCount) {
       if (bleDeviceCount > BLE_VISIBLE) {
@@ -690,8 +717,8 @@ void handleBLEDetail(ButtonEvent ev) {
       walkTest.active = true;
       memset(walkTest.rssiHistory, 0, sizeof(walkTest.rssiHistory));
       currentScreen = SCREEN_BLE_WALK_TEST;
-      startBLEScan(); // Ensure BLE scanning is active
-      scanState.lastScan = 0; // Force immediate update
+      startBLEScan();
+      scanState.lastScan = 0;
     }
   }
 
@@ -780,7 +807,7 @@ void handleDeauthWatch(ButtonEvent ev) {
     currentScreen = SCREEN_SECURITY_MENU;
     stopAllWifi();
     drawSecurityMenu();
-    alertLevel = 0;  // Reset to normal
+    alertLevel = 0;
     setRGB(RGB_GREEN);
   }
 }
@@ -789,9 +816,8 @@ void handleRogueAPWatch(ButtonEvent ev) {
   if (millis() - scanState.lastScan > 3000) {
     fetchApResults(false);
     uint8_t oldRogueCount = rogueCount;
-    detectRogueAPs();  // Check for APs with same SSID but different BSSID
+    detectRogueAPs();
 
-    // Log new rogue detections
     if (rogueCount > prevRogueCount) {
       for (int i = prevRogueCount; i < rogueCount; i++) {
         char msg[40];
@@ -805,12 +831,10 @@ void handleRogueAPWatch(ButtonEvent ev) {
     scanState.lastScan = millis();
   }
 
-
-  // Update alert level based on rogue AP detection
   if (rogueCount > 0) {
-    alertLevel = 2;  // Critical - red blink
+    alertLevel = 2;
   } else {
-    alertLevel = 0;  // Normal - green
+    alertLevel = 0;
   }
   updateAlertLED();
 
@@ -819,16 +843,14 @@ void handleRogueAPWatch(ButtonEvent ev) {
     currentScreen = SCREEN_SECURITY_MENU;
     stopAllWifi();
     drawSecurityMenu();
-    alertLevel = 0;  // Reset to normal
+    alertLevel = 0;
     setRGB(RGB_GREEN);
   }
 }
 
 void handleBLETrackerWatch(ButtonEvent ev) {
-  // Update BLE scan
   updateBLEScan();
 
-  // Count potential trackers
   int trackerCount = 0;
   for (int i = 0; i < bleDeviceCount; i++) {
     if (bleDevices[i].advType > 0 || !bleDevices[i].hasName) {
@@ -836,11 +858,10 @@ void handleBLETrackerWatch(ButtonEvent ev) {
     }
   }
 
-  // Update alert level based on tracker detection
   if (trackerCount > 0) {
-    alertLevel = 1;  // Warning - orange blink
+    alertLevel = 1;
   } else {
-    alertLevel = 0;  // Normal - green
+    alertLevel = 0;
   }
   updateAlertLED();
 
@@ -849,23 +870,21 @@ void handleBLETrackerWatch(ButtonEvent ev) {
     currentScreen = SCREEN_SECURITY_MENU;
     stopBLEScan();
     drawSecurityMenu();
-    alertLevel = 0;  // Reset to normal
+    alertLevel = 0;
     setRGB(RGB_GREEN);
   }
 }
 
 void handleAlertSettings(ButtonEvent ev) {
   if (ev == BTN_SHORT) {
-    // Navigate between settings
     alertSettingIndex = (alertSettingIndex + 1) % 2;
   } else if (ev == BTN_LONG) {
-    // Adjust selected setting
     switch (alertSettingIndex) {
-      case 0:  // Deauth threshold
+      case 0:
         settings.deauthThreshold = (settings.deauthThreshold + 5) % 55;  // 0, 5, 10, ... 50
         if (settings.deauthThreshold == 0) settings.deauthThreshold = 5;
         break;
-      case 1:  // Screen timeout
+      case 1:
         if (settings.screenTimeout == 0) settings.screenTimeout = 30;
         else if (settings.screenTimeout == 30) settings.screenTimeout = 60;
         else if (settings.screenTimeout == 60) settings.screenTimeout = 120;
@@ -878,24 +897,21 @@ void handleAlertSettings(ButtonEvent ev) {
   drawAlertSettings();
 
   if (ev == BTN_BACK) {
-    saveSettings();  // Save settings on exit
+    saveSettings();
     currentScreen = SCREEN_SECURITY_MENU;
     drawSecurityMenu();
   }
 }
 
 void updateRSSIHistory() {
-  // Track top 3 APs by RSSI
   if (apCount == 0) return;
 
-  // Get top 3 APs by RSSI
   uint8_t topIndices[MAX_TRACKED_APS] = {0, 0, 0};
   int8_t topRSSI[MAX_TRACKED_APS] = {-128, -128, -128};
 
   for (int i = 0; i < apCount && i < MAX_APS; i++) {
     for (int j = 0; j < MAX_TRACKED_APS; j++) {
       if (apList[i].rssi > topRSSI[j]) {
-        // Shift down lower entries
         for (int k = MAX_TRACKED_APS - 1; k > j; k--) {
           topRSSI[k] = topRSSI[k - 1];
           topIndices[k] = topIndices[k - 1];
@@ -907,17 +923,14 @@ void updateRSSIHistory() {
     }
   }
 
-  // Update history for each tracked AP
   for (int i = 0; i < MAX_TRACKED_APS; i++) {
     if (topRSSI[i] > -128) {
       uint8_t apIdx = topIndices[i];
 
-      // Check if this AP is already being tracked
       bool found = false;
       for (int j = 0; j < MAX_TRACKED_APS; j++) {
         if (rssiHistory[j].active &&
             memcmp(rssiHistory[j].bssid, apList[apIdx].bssid, 6) == 0) {
-          // Update existing entry
           rssiHistory[j].rssiSamples[rssiHistory[j].sampleIndex] = apList[apIdx].rssi;
           rssiHistory[j].sampleIndex = (rssiHistory[j].sampleIndex + 1) % RSSI_HISTORY_SIZE;
           found = true;
@@ -925,7 +938,6 @@ void updateRSSIHistory() {
         }
       }
 
-      // If not found, add to first available slot
       if (!found) {
         for (int j = 0; j < MAX_TRACKED_APS; j++) {
           if (!rssiHistory[j].active) {
@@ -943,44 +955,49 @@ void updateRSSIHistory() {
 }
 
 void handleWhyIsItSlow(ButtonEvent ev) {
-  // Toggle view on long press
   if (ev == BTN_LONG) {
     whySlowView = (whySlowView + 1) % 2;
+    whySlowApIdx = 0;
+  }
+
+  if (ev == BTN_SHORT && whySlowView == 1) {
+    uint8_t activeCount = 0;
+    for (int i = 0; i < MAX_TRACKED_APS; i++) {
+      if (rssiHistory[i].active) activeCount++;
+    }
+    whySlowApIdx = (whySlowApIdx + 1) % (activeCount + 1);
   }
 
   if (ev == BTN_BACK) {
     currentScreen = SCREEN_INSIGHTS_MENU;
     stopAllWifi();
-    whySlowView = 0; // Reset to analysis view
+    whySlowView = 0;
+    whySlowApIdx = 0;
     drawInsightsMenu();
     return;
   }
 
-  // Periodically scan and collect RSSI samples
   if (millis() - scanState.lastScan > 2000) {
     enterScanMode();
     startApScan();
-    delay(WIFI_SCAN_DELAY_MS);
+    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
     fetchApResults(false);
     updateRSSIHistory();
     scanState.lastScan = millis();
   }
 
-
   drawWhyIsItSlow();
 }
 
 void handleChannelRecommendation(ButtonEvent ev) {
-  // Channel Recommendation needs fresh scan data
   if (millis() - scanState.lastScan > 3000) {
     enterScanMode();
     startApScan();
-    delay(WIFI_SCAN_DELAY_MS); // Wait for scan to complete
+    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
     fetchApResults(false);
     scanState.lastScan = millis();
   }
   drawChannelRecommendation();
-
 
   if (ev == BTN_BACK) {
     currentScreen = SCREEN_INSIGHTS_MENU;
@@ -990,19 +1007,16 @@ void handleChannelRecommendation(ButtonEvent ev) {
 }
 
 void handleEnvironmentChange(ButtonEvent ev) {
-  // Update snapshot periodically
   if (millis() - scanState.lastEnvCheck > 2000) {
     enterScanMode();
     startApScan();
-    delay(WIFI_SCAN_DELAY_MS); // Wait for scan to complete
+    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
     fetchApResults(false);
     takeSnapshot(&currentSnapshot);
     scanState.lastEnvCheck = millis();
   }
   drawEnvironmentChange();
 
-
-  // Long press to save baseline
   if (ev == BTN_LONG) {
     baseline = currentSnapshot;
     logEvent(1, "Baseline saved");
@@ -1016,16 +1030,14 @@ void handleEnvironmentChange(ButtonEvent ev) {
 }
 
 void handleQuickSnapshot(ButtonEvent ev) {
-  // Scan for fresh data
   if (millis() - scanState.lastScan > 2000) {
     enterScanMode();
     startApScan();
-    delay(WIFI_SCAN_DELAY_MS);
+    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
     fetchApResults(false);
     updateBLEScan();
     scanState.lastScan = millis();
   }
-
 
   drawQuickSnapshot();
 
@@ -1037,25 +1049,30 @@ void handleQuickSnapshot(ButtonEvent ev) {
   }
 }
 
+static uint8_t scorecardPage = 0;
+
 void handleChannelScorecard(ButtonEvent ev) {
-  // Scan for fresh data
-  if (millis() - scanState.lastScan > 2000) {
-    enterScanMode();
-    startApScan();
-    delay(WIFI_SCAN_DELAY_MS);
-    fetchApResults(false);
-    scanState.lastScan = millis();
+  if (ev == BTN_SHORT) {
+    scorecardPage = (scorecardPage + 1) % 4;
   }
-
-
-  drawChannelScorecard();
 
   if (ev == BTN_BACK) {
     currentScreen = SCREEN_INSIGHTS_MENU;
     stopAllWifi();
+    scorecardPage = 0;
     drawInsightsMenu();
     return;
   }
+
+  if (millis() - scanState.lastScan > 2000) {
+    enterScanMode();
+    startApScan();
+    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
+    fetchApResults(false);
+    scanState.lastScan = millis();
+  }
+
+  drawChannelScorecard(scorecardPage);
 }
 
 void handleEventLog(ButtonEvent ev) {
@@ -1068,16 +1085,14 @@ void handleEventLog(ButtonEvent ev) {
 }
 
 void handleBaselineCompare(ButtonEvent ev) {
-  // Update current snapshot periodically
   if (millis() - scanState.lastBaselineUpdate > 2000) {
     enterScanMode();
     startApScan();
-    delay(WIFI_SCAN_DELAY_MS); // Wait for scan to complete
+    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
     fetchApResults(false);
     takeSnapshot(&currentSnapshot);
     scanState.lastBaselineUpdate = millis();
   }
-
 
   drawBaselineCompare();
 
@@ -1099,18 +1114,14 @@ void handleBatteryPower(ButtonEvent ev) {
 
 void handleDisplaySettings(ButtonEvent ev) {
   if (ev == BTN_SHORT) {
-    // Cycle through settings
     displaySettingCursor = (displaySettingCursor + 1) % 2;
   } else if (ev == BTN_LONG) {
-    // Adjust current setting
     if (displaySettingCursor == 0) {
-      // RGB Brightness: cycle through values
       settings.rgbBrightness = (settings.rgbBrightness + 10) % 110;
       if (settings.rgbBrightness > 100) settings.rgbBrightness = 0;
       rgb.setBrightness((settings.rgbBrightness * 255) / 100);
       rgb.show();
     } else if (displaySettingCursor == 1) {
-      // Sleep Timeout: 0(Never), 30, 60, 120, 300
       if (settings.screenTimeout == 0) settings.screenTimeout = 30;
       else if (settings.screenTimeout == 30) settings.screenTimeout = 60;
       else if (settings.screenTimeout == 60) settings.screenTimeout = 120;
@@ -1122,15 +1133,14 @@ void handleDisplaySettings(ButtonEvent ev) {
   drawDisplaySettings();
 
   if (ev == BTN_BACK) {
-    saveSettings();  // Save on exit
-    displaySettingCursor = 0; // Reset cursor
+    saveSettings();
+    displaySettingCursor = 0;
     currentScreen = SCREEN_SYSTEM_MENU;
     drawSystemMenu();
   }
 }
 
 void handleRadioControl(ButtonEvent ev) {
-  // Change channel
   if (ev == BTN_SHORT) {
     scanState.currentChannel = (scanState.currentChannel % MAX_CHANNEL) + 1;
   } else if (ev == BTN_LONG) {
@@ -1138,7 +1148,6 @@ void handleRadioControl(ButtonEvent ev) {
   }
 
   drawRadioControl();
-
 
   if (ev == BTN_BACK) {
     currentScreen = SCREEN_SYSTEM_MENU;
@@ -1156,7 +1165,6 @@ void handleAbout(ButtonEvent ev) {
 }
 
 void handlePowerMode(ButtonEvent ev) {
-  // Cycle through power modes
   if (ev == BTN_SHORT) {
     settings.powerMode = (settings.powerMode + 1) % 3;
   }
@@ -1164,7 +1172,7 @@ void handlePowerMode(ButtonEvent ev) {
   drawPowerMode();
 
   if (ev == BTN_BACK) {
-    saveSettings();  // Save on exit
+    saveSettings();
     currentScreen = SCREEN_SYSTEM_MENU;
     drawSystemMenu();
     return;
@@ -1172,12 +1180,10 @@ void handlePowerMode(ButtonEvent ev) {
 }
 
 void handleExport(ButtonEvent ev) {
-  // Export to serial on short press
   if (ev == BTN_SHORT) {
     Serial.println("\n========== DATA EXPORT ==========");
     Serial.printf("Timestamp: %lu ms\n\n", millis());
 
-    // Export WiFi APs
     Serial.printf("WiFi Networks: %d\n", apCount);
     for (int i = 0; i < apCount; i++) {
       Serial.printf("%d,%s,%02X:%02X:%02X:%02X:%02X:%02X,%d,%d\n",
@@ -1190,7 +1196,6 @@ void handleExport(ButtonEvent ev) {
       );
     }
 
-    // Export BLE devices
     Serial.printf("\nBLE Devices: %d\n", getActiveBLECount());
     for (int i = 0; i < bleDeviceCount; i++) {
       if (!bleDevices[i].isActive) continue;
@@ -1202,7 +1207,6 @@ void handleExport(ButtonEvent ev) {
       );
     }
 
-    // Export security events
     Serial.printf("\nSecurity Events: %d\n", eventCount);
     for (int i = 0; i < eventCount; i++) {
       Serial.printf("%d,%d,%s\n",
@@ -1239,15 +1243,15 @@ void handleStats(ButtonEvent ev) {
 }
 
 void handleWebServer(ButtonEvent ev) {
-  startWebServer();
-  handleWebServerLoop();
-
   if (ev == BTN_BACK) {
     stopWebServer();
     currentScreen = SCREEN_MENU;
     drawMenu();
     return;
   }
+
+  startWebServer();
+  handleWebServerLoop();
   
   static uint32_t lastWebDraw = 0;
   if (millis() - lastWebDraw > 1000) {

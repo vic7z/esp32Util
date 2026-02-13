@@ -47,7 +47,7 @@ void drawHiddenSSID();
 void drawStats();
 void drawQuickSnapshot();
 void drawRSSIMeter();
-void drawChannelScorecard();
+void drawChannelScorecard(uint8_t page = 0);
 void drawExport();
 void drawPowerMode();
 void drawWebServer();

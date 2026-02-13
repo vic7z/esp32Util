@@ -27,11 +27,12 @@ ScanState scanState = {0};
 WalkTestState walkTest = {0};
 
 uint8_t whySlowView = 0;
+uint8_t whySlowApIdx = 0;
 RSSIHistory rssiHistory[MAX_TRACKED_APS];
 uint32_t lastRSSISample = 0;
 
 uint8_t rfHealthView = 0;
-int8_t rfHealthRSSIHistory[60]; // 60 samples of avg RSSI
+int8_t rfHealthRSSIHistory[60];
 uint8_t rfHealthHistoryIndex = 0;
 int8_t rfHealthMinRSSI = 0;
 int8_t rfHealthMaxRSSI = -100;
@@ -56,9 +57,13 @@ uint8_t deviceSelectedIndex = 0;
 
 uint8_t displaySettingCursor = 0;
 
+ButtonEvent pendingButton = BTN_NONE;
+
 bool lastReading = HIGH;
 unsigned long lastDebounce = 0;
-unsigned long pressStart = 0;
+bool actionPressed = false;
+unsigned long actionPressStart = 0;
+unsigned long lastActionFired = 0;
 
 bool lastBackReading = HIGH;
 unsigned long lastBackDebounce = 0;
@@ -69,7 +74,6 @@ unsigned long lastBackFired = 0;
 ButtonEvent updateButton() {
   unsigned long now = millis();
 
-  // Check BACK button first (dedicated button) - fire on release
   bool backBtn = digitalRead(BTN_BACK_PIN);
   if (backBtn != lastBackReading) {
     lastBackDebounce = now;
@@ -80,7 +84,7 @@ ButtonEvent updateButton() {
     if (backBtn == LOW && !backPressed) {
       backPressed = true;
       backPressStart = now;
-    } else if (backBtn == HIGH && backPressed && (now - lastBackFired > 150)) {
+    } else if (backBtn == HIGH && backPressed && (now - lastBackFired > BUTTON_COOLDOWN_MS)) {
       unsigned long backHeld = now - backPressStart;
       backPressed = false;
       backPressStart = 0;
@@ -101,25 +105,116 @@ ButtonEvent updateButton() {
     lastDebounce = now;
     lastReading = r;
   }
-  if (now - lastDebounce < DEBOUNCE_MS) return BTN_NONE;
 
-  if (r == LOW && pressStart == 0) {
-    pressStart = now;
-  }
+  if (now - lastDebounce >= DEBOUNCE_MS) {
+    if (r == LOW && !actionPressed) {
+      actionPressed = true;
+      actionPressStart = now;
+    } else if (r == HIGH && actionPressed && (now - lastActionFired > BUTTON_COOLDOWN_MS)) {
+      unsigned long held = now - actionPressStart;
+      actionPressed = false;
+      actionPressStart = 0;
+      lastActionFired = now;
 
-  if (r == HIGH && pressStart) {
-    unsigned long held = now - pressStart;
-    pressStart = 0;
-
-    if (held >= LONG_PRESS_MS) {
-      Serial.printf("[BTN] LONG (held: %lums)\n", held);
-      return BTN_LONG;
+      if (held >= LONG_PRESS_MS) {
+        Serial.printf("[BTN] LONG (held: %lums)\n", held);
+        return BTN_LONG;
+      }
+      Serial.printf("[BTN] SHORT (held: %lums)\n", held);
+      return BTN_SHORT;
     }
-    Serial.printf("[BTN] SHORT (held: %lums)\n", held);
-    return BTN_SHORT;
   }
 
   return BTN_NONE;
+}
+
+// Delay that keeps polling buttons so presses aren't lost during WiFi scans.
+// Any button press detected during the wait is stored in pendingButton.
+void buttonAwareDelay(unsigned long ms) {
+  unsigned long start = millis();
+  while (millis() - start < ms) {
+    ButtonEvent ev = updateButton();
+    if (ev != BTN_NONE) {
+      pendingButton = ev;
+      lastActivity = millis();
+    }
+    delay(10); // Small yield to avoid tight spin
+  }
+}
+
+#define BOOT_MAX_LINES 10
+#define BOOT_VISIBLE 4
+const char* bootLines[BOOT_MAX_LINES];
+uint8_t bootStatus[BOOT_MAX_LINES];
+uint8_t bootLineCount = 0;
+uint8_t bootTotalSteps = 8;
+
+void drawBootScreen() {
+  uint8_t startIdx = 0;
+  if (bootLineCount > BOOT_VISIBLE) startIdx = bootLineCount - BOOT_VISIBLE;
+
+  oled.firstPage();
+  do {
+    oled.drawBox(0, 0, 128, 11);
+    oled.setDrawColor(0);
+    oled.setFont(u8g2_font_5x7_tf);
+    oled.drawStr(3, 8, "POCKET RF TOOL");
+    uint8_t vw = strlen(FW_VERSION) * 5;
+    oled.drawStr(125 - vw, 8, FW_VERSION);
+    oled.setDrawColor(1);
+
+    oled.drawHLine(0, 12, 128);
+
+    oled.setFont(u8g2_font_5x7_tf);
+    for (uint8_t i = 0; i < BOOT_VISIBLE && (startIdx + i) < bootLineCount; i++) {
+      uint8_t idx = startIdx + i;
+      uint8_t y = 22 + i * 9;
+
+      if (bootStatus[idx] == 1) {
+        oled.drawDisc(5, y - 2, 2);
+      } else if (bootStatus[idx] == 2) {
+        oled.drawLine(3, y - 4, 7, y);
+        oled.drawLine(7, y - 4, 3, y);
+      } else {
+        oled.drawCircle(5, y - 2, 2);
+      }
+
+      oled.drawStr(12, y, bootLines[idx]);
+    }
+
+    oled.drawFrame(2, 57, 124, 6);
+    uint8_t filled = (uint8_t)((uint16_t)bootLineCount * 120 / bootTotalSteps);
+    if (filled > 120) filled = 120;
+    if (filled > 0) {
+      oled.drawBox(4, 59, filled, 2);
+    }
+    oled.setFont(u8g2_font_4x6_tf);
+    char pct[5];
+    uint8_t pctVal = (uint8_t)((uint16_t)bootLineCount * 100 / bootTotalSteps);
+    if (pctVal > 100) pctVal = 100;
+    sprintf(pct, "%d%%", pctVal);
+    uint8_t pw = strlen(pct) * 4;
+    oled.drawStr(64 - pw / 2, 56, pct);
+  } while (oled.nextPage());
+}
+
+void bootLog(const char* msg) {
+  if (bootLineCount < BOOT_MAX_LINES) {
+    bootLines[bootLineCount] = msg;
+    bootStatus[bootLineCount] = 0; // running
+    bootLineCount++;
+  }
+  drawBootScreen();
+  Serial.printf("[BOOT] %s\n", msg);
+  delay(150); // Brief pause so each line is visible
+}
+
+void bootOK() {
+  if (bootLineCount > 0) {
+    bootStatus[bootLineCount - 1] = 1;
+  }
+  drawBootScreen();
+  delay(100);
 }
 
 void setup() {
@@ -138,32 +233,48 @@ void setup() {
   oled.begin();
   oled.setContrast(128);
 
-  oled.firstPage();
-  do {
-    oled.setFont(u8g2_font_6x10_tf);
-    oled.drawStr(10, 25, "Wi-Fi Analyzer");
-    oled.setFont(u8g2_font_5x7_tf);
-    oled.drawStr(15, 40, "Initializing...");
-  } while (oled.nextPage());
+  bootLog("Hardware init");
+  bootOK();
 
-  delay(100);
+  bootLog("Loading settings");
+  bootOK();
 
+  bootLog("Starting WiFi modem");
   initWiFi();
+  bootOK();
 
-  Serial.println("[INIT] Initializing BLE...");
+  bootLog("Starting BLE modem");
   initBLE();
-  Serial.println("[INIT] BLE ready");
+  bootOK();
 
+  bootLog("Calibrating radio");
   resetSession();
-  drawMenu();
+  bootOK();
+
+  bootLog("Starting scan engine");
+  bootOK();
+
+  bootLog("Loading UI");
+  bootOK();
+
+  bootLog("System ready");
+  bootOK();
 
   if (RGB_ENABLED) setRGB(RGB_GREEN);
-
   Serial.println("ESP32-C3 Wi-Fi & BLE Analyzer Ready");
+
+  delay(1500); // Show completed boot for 1.5 seconds
+  drawMenu();
 }
 
 void loop() {
-  ButtonEvent ev = updateButton();
+  ButtonEvent ev;
+  if (pendingButton != BTN_NONE) {
+    ev = pendingButton;
+    pendingButton = BTN_NONE;
+  } else {
+    ev = updateButton();
+  }
 
   if (ev == BTN_BACK_LONG) {
     enterDeepSleep();
@@ -265,6 +376,6 @@ void loop() {
     case SCREEN_WEB_SERVER: handleWebServer(ev); break;
   }
   
-  delay(40);
+  delay(15);
 }
 

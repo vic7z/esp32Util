@@ -9,15 +9,9 @@ uint8_t bleSelectedIndex = 0;
 bool bleScanning = false;
 bool bleInitialized = false;
 uint32_t bleScanStart = 0;
-// uint32_t lastBLEScan = 0; // REMOVED
-// uint32_t lastBLESort = 0; // REMOVED
 BLEScan* pBLEScan = nullptr;
 
-
 void MyAdvertisedDeviceCallbacks::onResult(BLEAdvertisedDevice advertisedDevice) {
-  // Note: This callback is kept for compatibility but we now process results
-  // directly in updateBLEScan() for more reliable device detection.
-  // The callback may still fire during scans but we don't rely on it.
 }
 
 void initBLE() {
@@ -28,7 +22,7 @@ void initBLE() {
     pBLEScan->setActiveScan(true);
     pBLEScan->setInterval(100);
     pBLEScan->setWindow(99);
-    pBLEScan->setDuplicateFilter(false);  // Report all devices, not just new ones
+    pBLEScan->setDuplicateFilter(false);
     bleInitialized = true;
   }
 }
@@ -42,7 +36,6 @@ void startBLEScan() {
 }
 
 void stopBLEScan() {
-
   if (bleScanning && pBLEScan != nullptr) {
     pBLEScan->stop();
     pBLEScan->clearResults();
@@ -57,14 +50,11 @@ void updateBLEScan() {
 
   uint32_t now = millis();
   
-  // Trigger a new scan every 2 seconds
   if (now - scanState.lastBLELoop > BLE_SCAN_INTERVAL_MS) {
-    // Check if scan is not already running
     if (!pBLEScan->isScanning()) {
       pBLEScan->clearResults();
-      BLEScanResults* results = pBLEScan->start(1, false);  // 1 second blocking scan
-      
-      // Process results directly (don't rely on callback)
+      BLEScanResults* results = pBLEScan->start(1, false);
+
       if (results != nullptr) {
         int count = results->getCount();
         for (int i = 0; i < count && bleDeviceCount < MAX_BLE_DEVICES; i++) {
@@ -74,11 +64,9 @@ void updateBLEScan() {
           strncpy(addr, addrStr.c_str(), 17);
           addr[17] = '\0';
           
-          // Check if device already exists
           bool found = false;
           for (int j = 0; j < bleDeviceCount; j++) {
             if (strcmp(bleDevices[j].address, addr) == 0) {
-              // Update existing device
               bleDevices[j].rssi = (int8_t)device.getRSSI();
               bleDevices[j].lastSeen = now;
               bleDevices[j].isActive = true;
@@ -92,7 +80,6 @@ void updateBLEScan() {
             }
           }
           
-          // Add new device
           if (!found && bleDeviceCount < MAX_BLE_DEVICES) {
             strncpy(bleDevices[bleDeviceCount].address, addr, 17);
             bleDevices[bleDeviceCount].address[17] = '\0';
@@ -118,7 +105,6 @@ void updateBLEScan() {
     scanState.lastBLELoop = now;
   }
 
-  // Mark devices as inactive if not seen for 10 seconds
   for (int i = 0; i < bleDeviceCount; i++) {
     if (now - bleDevices[i].lastSeen > BLE_TIMEOUT_MS) {
       bleDevices[i].isActive = false;

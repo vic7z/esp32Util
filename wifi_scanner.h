@@ -5,7 +5,7 @@
 #include <esp_wifi.h>
 #include <nvs_flash.h>
 
-extern volatile uint32_t pktTotal, pktBeacon, pktData, pktDeauth;
+extern volatile uint32_t pktTotal, pktBeacon, pktData, pktDeauth, pktProbe;
 extern volatile int32_t rssiAccum;
 extern volatile uint32_t rssiCount;
 extern uint32_t history[HISTORY_SIZE];
@@ -13,17 +13,11 @@ extern uint8_t histIdx;
 extern uint32_t pps, peak, lastPkt;
 extern float smoothPps;
 extern float avgRssi;
-// extern bool frozen; // REMOVED
-// extern uint8_t currentChannel; // REMOVED
-// extern uint32_t lastSecond; // REMOVED
 extern bool signalAlert;
 
 extern uint32_t chPackets[MAX_CHANNEL + 1];
 extern uint32_t chBeacons[MAX_CHANNEL + 1];
 extern uint32_t chDeauth[MAX_CHANNEL + 1];
-// extern uint8_t analyzerChannel; // REMOVED
-// extern uint8_t selectedChannel; // REMOVED
-// extern uint32_t analyzerLastHop; // REMOVED
 
 extern wifi_ap_record_t apList[MAX_APS];
 extern uint16_t apCount;
@@ -32,9 +26,7 @@ extern uint8_t apScroll;
 extern uint8_t apSelectedIndex;
 extern uint8_t apCompareA;
 extern uint8_t apCompareB;
-// extern uint32_t lastScan; // REMOVED
 extern bool apSortedOnce;
-
 
 extern HiddenSSID hiddenList[MAX_HIDDEN_SSIDS];
 extern uint8_t hiddenCount;
@@ -58,6 +50,9 @@ extern uint32_t lastDeauthCheck;
 extern bool attackActive;
 extern uint8_t deauthChannel;
 
+extern uint32_t beaconPps;
+extern uint32_t deauthPps;
+
 void initWiFi();
 void stopAllWifi();
 void enterSnifferMode(uint8_t ch);
@@ -77,6 +72,7 @@ const char* channelInsight();
 uint8_t channelLoad(uint8_t ch);
 const char* loadQuality(uint8_t load);
 uint8_t bestChannel();
+uint8_t worstChannel();
 uint8_t bestAPIndex();
 
 #endif // WIFI_SCANNER_H

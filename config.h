@@ -6,8 +6,8 @@
 #include <Adafruit_NeoPixel.h>
 #include <Preferences.h>
 
-#define FW_VERSION "v1.3.3"
-#define FW_DATE "2026-01-28"
+#define FW_VERSION "v1.4.0"
+#define FW_DATE "2026-02-12"
 
 #define BTN_ACTION 2
 #define BTN_BACK_PIN 3
@@ -228,6 +228,10 @@ extern AutoWatchState autoWatch;
 extern WalkTestState walkTest;
 extern ListCursor apListState;
 extern ListCursor bleListState;
+
+// Button-aware delay (polls buttons during WiFi scan waits)
+extern ButtonEvent pendingButton;
+void buttonAwareDelay(unsigned long ms);
 
 // Packet log for web UI
 extern PacketLog pktLogBuffer[MAX_PKT_LOG];

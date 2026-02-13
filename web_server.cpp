@@ -5,7 +5,7 @@
 #include "security.h"
 #include "settings.h"
 #include "utils.h"
-#include "web/web_assets.h"
+#include <SPIFFS.h>
 
 WebServer server(80);
 DNSServer dnsServer;
@@ -27,17 +27,21 @@ void parseBytes(const char* str, char sep, byte* bytes, int maxBytes, int base) 
 }
 
 void handleRoot() {
-  server.send(200, "text/html", getIndexHtml());
+  File f = SPIFFS.open("/index.html", "r");
+  if (f) {
+    server.streamFile(f, "text/html");
+    f.close();
+  } else {
+    server.send(500, "text/plain", "File not found - upload SPIFFS image");
+  }
 }
 
 void handleSettings() {
   if (server.method() == HTTP_GET) {
     char buffer[512];
-    // Escape SSID and password for JSON
     char ssidSafe[66], passSafe[130];
     strncpy(ssidSafe, settings.apSSID, 65);
     strncpy(passSafe, settings.apPassword, 129);
-    // Basic JSON escaping
     for (int i = 0; ssidSafe[i]; i++) if (ssidSafe[i] == '"' || ssidSafe[i] == '\\') ssidSafe[i] = '_';
     for (int i = 0; passSafe[i]; i++) if (passSafe[i] == '"' || passSafe[i] == '\\') passSafe[i] = '_';
     
@@ -80,9 +84,10 @@ void handleSettings() {
 
 bool snifferActive = false;
 uint8_t snifferChannel = 0;
+uint8_t ownApMac[6] = {0};
 uint32_t lastPktTotal = 0;
 uint32_t lastPktTime = 0;
-uint32_t ppsHistory[60]; // 60 seconds of PPS history
+uint32_t ppsHistory[60];
 uint8_t ppsHistIdx = 0;
 
 void stopSniffer(); // Forward declaration
@@ -92,6 +97,7 @@ void resetPktStats() {
   pktBeacon = 0;
   pktData = 0;
   pktDeauth = 0;
+  pktProbe = 0;
   pps = 0;
   peak = 0;
   lastPktTotal = 0;
@@ -101,7 +107,6 @@ void resetPktStats() {
   memset((void*)chDeauth, 0, sizeof(chDeauth));
   memset((void*)ppsHistory, 0, sizeof(ppsHistory));
   ppsHistIdx = 0;
-  // Clear packet log buffer
   extern uint8_t pktLogIndex;
   extern uint8_t pktLogCount;
   pktLogIndex = 0;
@@ -118,7 +123,6 @@ void updatePPS() {
     pps = diff;
     if (pps > peak) peak = pps;
     
-    // Store in history for graph
     ppsHistory[ppsHistIdx] = pps;
     ppsHistIdx = (ppsHistIdx + 1) % 60;
     
@@ -128,7 +132,6 @@ void updatePPS() {
 }
 
 void startSniffer(uint8_t ch) {
-  // If already active, stop first to reset
   if (snifferActive) {
     stopSniffer();
     delay(50);
@@ -136,15 +139,16 @@ void startSniffer(uint8_t ch) {
   
   snifferChannel = ch;
   
-  // Reset all stats before starting
   resetPktStats();
-  
-  // Enable promiscuous mode while keeping AP active
+
+  // In AP mode the radio stays on the AP's channel; we capture all traffic and filter in software
   esp_wifi_set_promiscuous_rx_cb(sniffer);
   esp_wifi_set_promiscuous(true);
+  
   if (ch > 0 && ch <= 13) {
     esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
   }
+  
   snifferActive = true;
 }
 
@@ -153,7 +157,6 @@ void stopSniffer() {
   esp_wifi_set_promiscuous(false);
   snifferActive = false;
   snifferChannel = 0;
-  // Don't reset stats here so user can see final counts
 }
 
 void handleAction() {
@@ -166,7 +169,7 @@ void handleAction() {
   if (type == "scan_wifi") {
     // Do a blocking scan for immediate results
     WiFi.scanDelete();
-    int n = WiFi.scanNetworks(false, true, false, 120); // blocking, show hidden, passive=false, 120ms per channel
+    int n = WiFi.scanNetworks(false, true, false, 120);
     if (n >= 0) {
       apCount = min((int)n, (int)MAX_APS);
       for (int i = 0; i < apCount; i++) {
@@ -220,10 +223,8 @@ void handleApiData() {
 
   char buffer[512];
   
-  // Start JSON
   server.sendContent("{\"wifi\":[");
 
-  // WiFi APs
   for (int i = 0; i < apCount; i++) {
     if (i > 0) server.sendContent(",");
     
@@ -232,14 +233,11 @@ void handleApiData() {
       apList[i].bssid[0], apList[i].bssid[1], apList[i].bssid[2],
       apList[i].bssid[3], apList[i].bssid[4], apList[i].bssid[5]);
     
-    // Get vendor name
     const char* vendor = getVendor(apList[i].bssid);
-    
-    // Escape SSID by copying valid chars only
+
     char ssidSafe[33];
     strncpy(ssidSafe, (char*)apList[i].ssid, 32);
     ssidSafe[32] = '\0';
-    // Remove control chars and quotes that would break JSON
     for (int j = 0; ssidSafe[j]; j++) {
       if ((unsigned char)ssidSafe[j] < 32 || ssidSafe[j] == '"' || ssidSafe[j] == '\\') {
         ssidSafe[j] = '?';
@@ -255,14 +253,12 @@ void handleApiData() {
 
   server.sendContent("],\"ble\":[");
 
-  // BLE devices
   bool first = true;
   for (int i = 0; i < bleDeviceCount; i++) {
     if (bleDevices[i].isActive) {
       if (!first) server.sendContent(",");
       first = false;
       
-      // Escape BLE name
       char nameSafe[33];
       strncpy(nameSafe, bleDevices[i].name, 32);
       nameSafe[32] = '\0';
@@ -281,8 +277,7 @@ void handleApiData() {
   }
 
   server.sendContent("],\"graph\":[");
-  
-  // Graph data (RSSI history)
+
   for (int i = 0; i < WALK_HISTORY_SIZE; i++) {
     if (i > 0) server.sendContent(",");
     snprintf(buffer, sizeof(buffer), "%d", walkTest.rssiHistory[i]);
@@ -290,12 +285,10 @@ void handleApiData() {
   }
   
   server.sendContent("],\"events\":[");
-  
-  // Events
+
   for (int i = 0; i < eventCount; i++) {
     if (i > 0) server.sendContent(",");
     
-    // Escape message
     char msgSafe[41];
     strncpy(msgSafe, eventLog[i].message, 40);
     msgSafe[40] = '\0';
@@ -311,7 +304,6 @@ void handleApiData() {
     server.sendContent(buffer);
   }
   
-  // Rogue APs
   server.sendContent("],\"rogue\":[");
   for (int i = 0; i < rogueCount; i++) {
     if (i > 0) server.sendContent(",");
@@ -324,7 +316,6 @@ void handleApiData() {
       rogueList[i].bssid2[0], rogueList[i].bssid2[1], rogueList[i].bssid2[2],
       rogueList[i].bssid2[3], rogueList[i].bssid2[4], rogueList[i].bssid2[5]);
     
-    // Escape SSID
     char ssidSafe[33];
     strncpy(ssidSafe, rogueList[i].ssid, 32);
     ssidSafe[32] = '\0';
@@ -347,20 +338,24 @@ void handleApiData() {
 void handlePacketData() {
   char buffer[512];
   
-  // Update PPS before sending
   updatePPS();
   
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send(200, "application/json", "");
   
-  // Send packet statistics
+  uint8_t reportChannel = (snifferChannel > 0 && snifferChannel <= 13) ? snifferChannel : 0;
+
+  uint32_t reportTotal = pktTotal;
+  uint32_t reportBeacon = pktBeacon;
+  uint32_t reportDeauth = pktDeauth;
+  uint32_t reportData = pktData;
+  
   snprintf(buffer, sizeof(buffer),
-    "{\"total\":%lu,\"beacon\":%lu,\"data\":%lu,\"deauth\":%lu,\"pps\":%lu,\"peak\":%lu,\"channel\":%d,",
-    (unsigned long)pktTotal, (unsigned long)pktBeacon, (unsigned long)pktData, 
-    (unsigned long)pktDeauth, (unsigned long)pps, (unsigned long)peak, (int)scanState.currentChannel);
+    "{\"total\":%lu,\"beacon\":%lu,\"data\":%lu,\"probe\":%lu,\"deauth\":%lu,\"pps\":%lu,\"peak\":%lu,\"channel\":%d,",
+    (unsigned long)reportTotal, (unsigned long)reportBeacon, (unsigned long)reportData,
+    (unsigned long)pktProbe, (unsigned long)reportDeauth, (unsigned long)pps, (unsigned long)peak, (int)reportChannel);
   server.sendContent(buffer);
     
-  // Send PPS history for graph
   server.sendContent("\"ppsHistory\":[");
   for (int i = 0; i < 60; i++) {
     if (i > 0) server.sendContent(",");
@@ -370,7 +365,6 @@ void handlePacketData() {
   }
   server.sendContent("],");
   
-  // Send channel distribution
   server.sendContent("\"channels\":[");
   for (int i = 1; i <= MAX_CHANNEL; i++) {
     if (i > 1) server.sendContent(",");
@@ -378,7 +372,6 @@ void handlePacketData() {
     server.sendContent(buffer);
   }
   
-  // Send beacon counts per channel
   server.sendContent("],\"beacons\":[");
   for (int i = 1; i <= MAX_CHANNEL; i++) {
     if (i > 1) server.sendContent(",");
@@ -386,7 +379,6 @@ void handlePacketData() {
     server.sendContent(buffer);
   }
   
-  // Send deauth counts per channel
   server.sendContent("],\"deauths\":[");
   for (int i = 1; i <= MAX_CHANNEL; i++) {
     if (i > 1) server.sendContent(",");
@@ -394,10 +386,9 @@ void handlePacketData() {
     server.sendContent(buffer);
   }
   
-  // Send packet log
   server.sendContent("],\"packets\":[");
   int count = 0;
-  for (int i = 0; i < MAX_PKT_LOG && count < 20; i++) {
+  for (int i = 0; i < MAX_PKT_LOG && count < MAX_PKT_LOG; i++) {
     int idx = (pktLogIndex - 1 - i + MAX_PKT_LOG) % MAX_PKT_LOG;
     if (!pktLogBuffer[idx].active) continue;
     if (count > 0) server.sendContent(",");
@@ -407,7 +398,6 @@ void handlePacketData() {
       pktLogBuffer[idx].bssid[0], pktLogBuffer[idx].bssid[1], pktLogBuffer[idx].bssid[2],
       pktLogBuffer[idx].bssid[3], pktLogBuffer[idx].bssid[4], pktLogBuffer[idx].bssid[5]);
     
-    // Escape SSID
     char ssidSafe[33];
     strncpy(ssidSafe, pktLogBuffer[idx].ssid, 32);
     ssidSafe[32] = 0;
@@ -435,34 +425,32 @@ void handlePacketData() {
 
 void startWebServer() {
   if (webServerRunning) return;
-  
-  // Disable WiFi first to clear any previous state
+
+  if (!SPIFFS.begin(true)) {
+    Serial.println("[ERROR] SPIFFS mount failed!");
+  }
+
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
   delay(100);
-  
-  // Use AP mode
+
   WiFi.mode(WIFI_AP);
   WiFi.setSleep(false);
   
-  // Configure AP IP first
   IPAddress localIP(192, 168, 4, 1);
   IPAddress gateway(192, 168, 4, 1);
   IPAddress subnet(255, 255, 255, 0);
   
-  // Must call softAPConfig BEFORE softAP
   if (!WiFi.softAPConfig(localIP, gateway, subnet)) {
     Serial.println("[ERROR] AP Config failed!");
     return;
   }
   
-  // Start AP with settings (use open network if password is empty)
   const char* ssid = settings.apSSID[0] ? settings.apSSID : "ESP32-Tool";
   const char* pass = settings.apPassword[0] ? settings.apPassword : "";
   bool result;
   
   if (pass[0] == '\0') {
-    // Open network - no password
     result = WiFi.softAP(ssid, NULL, 6, 0, 4);
     Serial.println("[INFO] Starting OPEN network (no password)");
   } else {
@@ -475,15 +463,18 @@ void startWebServer() {
     return;
   }
   
-  // Wait longer for DHCP to initialize
   delay(1000);
-  
+
+  WiFi.softAPmacAddress(ownApMac);
+  Serial.printf("[INFO] AP MAC (own): %02X:%02X:%02X:%02X:%02X:%02X\n",
+    ownApMac[0], ownApMac[1], ownApMac[2],
+    ownApMac[3], ownApMac[4], ownApMac[5]);
+
   Serial.print("[INFO] AP IP: ");
   Serial.println(WiFi.softAPIP());
   Serial.print("[INFO] AP MAC: ");
   Serial.println(WiFi.softAPmacAddress());
   
-  // Start DNS Server for "esp32.util"
   dnsServer.start(53, "esp32.util", localIP);
 
   server.on("/", handleRoot);
@@ -500,9 +491,13 @@ void stopWebServer() {
   if (!webServerRunning) return;
   server.stop();
   dnsServer.stop();
-  WiFi.softAPdisconnect(true);
-  WiFi.mode(WIFI_OFF);
+  stopSniffer();
+  // Use raw IDF call; Arduino's WiFi.mode(WIFI_OFF) calls esp_wifi_deinit() which
+  // breaks enterSnifferMode() later (esp_wifi_start returns ESP_ERR_WIFI_NOT_INIT)
+  esp_wifi_stop();
+  delay(200);
   webServerRunning = false;
+  Serial.println("[INFO] Web server stopped, WiFi driver stopped");
 }
 
 void handleWebServerLoop() {
@@ -515,25 +510,27 @@ void handleWebServerLoop() {
   static bool scanInProgress = false;
   uint32_t now = millis();
   
-  // Handle WiFi Scan - use blocking scan for reliability in AP mode
+  // WiFi.scanNetworks() kills promiscuous mode; pause sniffer before scan and restore after
+  static bool snifferWasPaused = false;
+
   if (triggerWifiScan && !scanInProgress) {
     triggerWifiScan = false;
     scanInProgress = true;
-    
-    // Delete any old scan results
+
+    if (snifferActive) {
+      esp_wifi_set_promiscuous(false);
+      snifferWasPaused = true;
+    }
+
     WiFi.scanDelete();
-    
-    // Start async scan first
-    int16_t err = WiFi.scanNetworks(true, true, false, 150); // async, show hidden, passive=false, maxTime=150ms per channel
+    int16_t err = WiFi.scanNetworks(true, true, false, 150);
     if (err == WIFI_SCAN_RUNNING) {
-      // Scan started successfully
     } else if (err >= 0) {
-      // Scan completed immediately (cached results)
       apCount = min((int)err, (int)MAX_APS);
       for (int i = 0; i < apCount; i++) {
         String ssid = WiFi.SSID(i);
         strncpy((char*)apList[i].ssid, ssid.c_str(), 32);
-        apList[i].ssid[31] = '\0'; // Ensure null termination
+        apList[i].ssid[31] = '\0';
         memcpy(apList[i].bssid, WiFi.BSSID(i), 6);
         apList[i].rssi = WiFi.RSSI(i);
         apList[i].primary = WiFi.channel(i);
@@ -542,10 +539,14 @@ void handleWebServerLoop() {
       WiFi.scanDelete();
       scanInProgress = false;
       lastWifiScan = now;
+      if (snifferWasPaused) {
+        snifferWasPaused = false;
+        esp_wifi_set_promiscuous_rx_cb(sniffer);
+        esp_wifi_set_promiscuous(true);
+      }
     }
   }
-  
-  // Check for async scan completion
+
   if (scanInProgress) {
     int16_t n = WiFi.scanComplete();
     if (n >= 0) {
@@ -553,7 +554,7 @@ void handleWebServerLoop() {
       for (int i = 0; i < apCount; i++) {
         String ssid = WiFi.SSID(i);
         strncpy((char*)apList[i].ssid, ssid.c_str(), 32);
-        apList[i].ssid[31] = '\0'; // Ensure null termination
+        apList[i].ssid[31] = '\0';
         memcpy(apList[i].bssid, WiFi.BSSID(i), 6);
         apList[i].rssi = WiFi.RSSI(i);
         apList[i].primary = WiFi.channel(i);
@@ -562,27 +563,28 @@ void handleWebServerLoop() {
       WiFi.scanDelete();
       scanInProgress = false;
       lastWifiScan = now;
+      if (snifferWasPaused) {
+        snifferWasPaused = false;
+        esp_wifi_set_promiscuous_rx_cb(sniffer);
+        esp_wifi_set_promiscuous(true);
+      }
     }
   }
-  
-  // Auto-scan every 10 seconds if not manually triggered
-  if (!scanInProgress && now - lastWifiScan > 10000) {
+
+  if (!scanInProgress && now - lastWifiScan > 10000 && !snifferActive) {
     triggerWifiScan = true;
   }
   
-  // Handle BLE Scan
   if (triggerBleScan) {
     triggerBleScan = false;
     startBLEScan();
     lastBleScan = now;
   }
   
-  // Keep BLE scanning active
   if (bleScanning) {
     updateBLEScan();
   }
   
-  // Auto-restart BLE scan every 5 seconds
   if (!bleScanning && now - lastBleScan > 5000) {
     startBLEScan();
     lastBleScan = now;
@@ -612,5 +614,3 @@ void handleWebServerLoop() {
     }
   }
 }
-
-

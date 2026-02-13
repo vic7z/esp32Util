@@ -2,7 +2,7 @@
 
 A professional WiFi and Bluetooth LE analyzer, security monitor, and diagnostic tool for ESP32 microcontrollers.
 
-![Version](https://img.shields.io/badge/version-v2.0-blue)
+![Version](https://img.shields.io/badge/version-v1.4.0-blue)
 ![Platform](https://img.shields.io/badge/platform-ESP32%2C%20ESP32--C3%2C%20ESP32--S2-green)
 
 ## Overview
@@ -306,6 +306,7 @@ Start the web server to access a powerful web interface from any device:
 - **WiFi**: 2.4GHz, Channels 1-13
 - **BLE**: Bluetooth 5.0 LE
 - **Partition Scheme**: Huge APP (3MB No OTA/1MB SPIFFS)
+- **Web UI Storage**: SPIFFS filesystem (separate from firmware)
 - **Web Interface**: Real-time updates every 2 seconds
 
 ## Data Limits
@@ -339,6 +340,35 @@ arduino-cli upload -p COM3 --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app .
 ```
 *Note: Replace COM3 with your actual port (check with `arduino-cli board list`)*
 
+### Flash Web UI (SPIFFS)
+
+The web interface HTML is stored on the ESP32's SPIFFS filesystem, separate from the firmware. This means you can update the web UI without recompiling the firmware.
+
+The web UI source file is located at `data/index.html`.
+
+**Build the SPIFFS image:**
+```bash
+mkspiffs -c data -b 4096 -p 256 -s 917504 spiffs.bin
+```
+
+**Flash the SPIFFS image to the ESP32:**
+```bash
+esptool --chip esp32c3 --port COM3 --baud 921600 write_flash 0x310000 spiffs.bin
+```
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| Block size (`-b`) | 4096 | SPIFFS block size |
+| Page size (`-p`) | 256 | SPIFFS page size |
+| Partition size (`-s`) | 917504 (0xE0000) | Size of the SPIFFS partition |
+| Flash offset | 0x310000 | Start address of the SPIFFS partition |
+
+**Tool locations (Windows, installed via Arduino):**
+- `mkspiffs`: `%LOCALAPPDATA%/Arduino15/packages/esp32/tools/mkspiffs/0.2.3/mkspiffs.exe`
+- `esptool`: `%LOCALAPPDATA%/Arduino15/packages/esp32/tools/esptool_py/5.1.0/esptool.exe`
+
+*Note: After flashing new firmware, you must also flash the SPIFFS image if it was erased. The SPIFFS partition is independent of the firmware partition.*
+
 ## Troubleshooting
 
 ### No WiFi APs Detected
@@ -363,8 +393,13 @@ arduino-cli upload -p COM3 --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app .
 
 ### Web Server Won't Start
 - Ensure you're using the **Huge APP** partition scheme
-- Check available flash space
+- Ensure the SPIFFS image has been flashed (see [Flash Web UI](#flash-web-ui-spiffs))
 - Try resetting the device
+
+### Web Page Shows "File not found"
+- The SPIFFS image needs to be flashed separately from the firmware
+- Re-flash the SPIFFS image using the commands in [Flash Web UI](#flash-web-ui-spiffs)
+- Ensure `data/index.html` exists before building the SPIFFS image
 
 ### Can't Connect to Web Interface
 - Verify you're connected to `ESP32-Tool` WiFi
@@ -374,15 +409,26 @@ arduino-cli upload -p COM3 --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app .
 
 ## Version History
 
-### v2.0 (Latest)
-- **NEW**: Web Server moved to Main Menu
-- **NEW**: Completely redesigned web interface
-- **NEW**: Channel recommendations in web UI
-- **NEW**: Click on AP/BLE devices for detailed info
-- **NEW**: Signal tracker tool in web UI
-- **NEW**: Live spectrum visualization
-- **NEW**: Rogue AP detection in web UI
-- **NEW**: URL `esp32.util` displayed on OLED
+### v1.4.0 (Latest) - 2026-02-12
+- **Improved OLED graphs**: Area fill under curves, current-value dots, finer dashed grids, middle axis labels
+- **Walk test mini-graphs**: Connected line graphs with area fill replacing choppy vertical bars
+- **Multi-AP graph**: Distinct line styles (solid/dashed/dotted) for each AP in "Why Is It Slow"
+- **Channel Analyzer redesign**: Modern layout with highlighted selected channel, best/worst visual markers, grid lines
+- **Auto Watch UI**: Signal quality bar, dotted separators, status indicator circles
+- **RF Health**: Segmented 5-bar health meter with percentage readout
+- **Button responsiveness fix**: Buttons no longer ignored during WiFi scan delays (1.5s windows)
+
+### v1.3.3 - 2026-01-28
+- Fixed AP count showing 0 in Auto Watch (type mismatch bug)
+- Fixed BLE random numbers in Auto Watch with static caching
+- Device Monitor shows WiFi clients, deep sleep mode, RSSI graph in RF Health
+
+### v2.0
+- Web Server moved to Main Menu
+- Completely redesigned web interface
+- Channel recommendations, signal tracker, live spectrum in web UI
+- Click on AP/BLE devices for detailed info
+- Rogue AP detection in web UI
 
 ### v1.x
 - Initial release
