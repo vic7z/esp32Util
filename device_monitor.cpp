@@ -6,7 +6,8 @@
 
 void IRAM_ATTR deviceMonitorSniffer(void* buf, wifi_promiscuous_pkt_type_t type);
 
-static bool deviceMonitorActive = false;
+bool deviceMonitorActive = false;
+bool webMonitorMode = false;
 static uint8_t monitorChannel = 1;
 static uint32_t lastChannelHop = 0;
 
@@ -172,7 +173,7 @@ void startDeviceMonitorSniffer() {
 }
 
 void updateDeviceMonitor() {
-  if (deviceMonitorActive && millis() - lastChannelHop > 300) {
+  if (deviceMonitorActive && !webMonitorMode && millis() - lastChannelHop > 300) {
     monitorChannel = (monitorChannel % 13) + 1;
     esp_wifi_set_channel(monitorChannel, WIFI_SECOND_CHAN_NONE);
     lastChannelHop = millis();

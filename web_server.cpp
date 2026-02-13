@@ -5,6 +5,8 @@
 #include "security.h"
 #include "settings.h"
 #include "utils.h"
+#include "device_monitor.h"
+#include "screens_draw.h"
 #include <SPIFFS.h>
 
 WebServer server(80);
@@ -12,6 +14,8 @@ DNSServer dnsServer;
 bool webServerRunning = false;
 bool triggerWifiScan = false;
 bool triggerBleScan = false;
+static uint32_t webLastWifiScan = 0;
+static bool webScanInProgress = false;
 
 extern int8_t walkRSSIHistory[WALK_HISTORY_SIZE];
 extern uint8_t walkTargetBSSID[6];
@@ -27,11 +31,14 @@ void parseBytes(const char* str, char sep, byte* bytes, int maxBytes, int base) 
 }
 
 void handleRoot() {
+  Serial.println("[WEB] Root request");
   File f = SPIFFS.open("/index.html", "r");
   if (f) {
+    Serial.printf("[WEB] Serving index.html, size=%d\n", f.size());
     server.streamFile(f, "text/html");
     f.close();
   } else {
+    Serial.println("[WEB] index.html not found!");
     server.send(500, "text/plain", "File not found - upload SPIFFS image");
   }
 }
@@ -167,10 +174,22 @@ void handleAction() {
   
   String type = server.arg("type");
   if (type == "scan_wifi") {
+    // Prevent auto-scan from interfering
+    webScanInProgress = true;
+    
+    // Pause sniffer if active
+    bool sniffPaused = false;
+    if (snifferActive || deviceMonitorActive) {
+      esp_wifi_set_promiscuous(false);
+      sniffPaused = true;
+      delay(50);
+    }
+    
     // Do a blocking scan for immediate results
     WiFi.scanDelete();
-    int n = WiFi.scanNetworks(false, true, false, 120);
-    if (n >= 0) {
+    delay(50);
+    int n = WiFi.scanNetworks(false, true, false, 150);
+    if (n > 0) {
       apCount = min((int)n, (int)MAX_APS);
       for (int i = 0; i < apCount; i++) {
         String ssid = WiFi.SSID(i);
@@ -181,8 +200,34 @@ void handleAction() {
         apList[i].primary = WiFi.channel(i);
         apList[i].authmode = WiFi.encryptionType(i);
       }
-      WiFi.scanDelete();
     }
+    WiFi.scanDelete();
+    
+    // Update security counters
+    secOpen = secWEP = secWPA = secWPA2 = secWPA3 = 0;
+    for (int i = 0; i < apCount; i++) {
+      switch (apList[i].authmode) {
+        case WIFI_AUTH_OPEN: secOpen++; break;
+        case WIFI_AUTH_WEP: secWEP++; break;
+        case WIFI_AUTH_WPA_PSK: secWPA++; break;
+        case WIFI_AUTH_WPA2_PSK:
+        case WIFI_AUTH_WPA_WPA2_PSK: secWPA2++; break;
+        case WIFI_AUTH_WPA3_PSK: secWPA3++; break;
+        default: secWPA2++; break;
+      }
+    }
+    
+    // Reset auto-scan timer so it doesn't overwrite these results for 15 seconds
+    webLastWifiScan = millis();
+    webScanInProgress = false;
+    
+    // Restore sniffer if it was active
+    if (sniffPaused) {
+      delay(100);
+      esp_wifi_set_promiscuous_rx_cb(deviceMonitorActive ? deviceMonitorSniffer : sniffer);
+      esp_wifi_set_promiscuous(true);
+    }
+    
     server.send(200, "text/plain", "WiFi Scan Complete: " + String(apCount) + " networks");
   } else if (type == "start_sniffer") {
     uint8_t ch = 0;
@@ -212,21 +257,50 @@ void handleAction() {
   } else if (type == "stop_track") {
     walkTest.active = false;
     server.send(200, "text/plain", "Tracking Stopped");
+  } else if (type == "start_monitor") {
+    if (snifferActive) stopSniffer();
+    esp_wifi_set_promiscuous_rx_cb(deviceMonitorSniffer);
+    esp_wifi_set_promiscuous(true);
+    deviceMonitorActive = true;
+    webMonitorMode = true;
+    server.send(200, "text/plain", "Client Monitor Started");
+  } else if (type == "stop_monitor") {
+    esp_wifi_set_promiscuous(false);
+    deviceMonitorActive = false;
+    webMonitorMode = false;
+    server.send(200, "text/plain", "Client Monitor Stopped");
+  } else if (type == "clear_monitor") {
+    clearDeviceMonitor();
+    server.send(200, "text/plain", "Monitor Cleared");
+  } else if (type == "save_baseline") {
+    takeSnapshot(&currentSnapshot);
+    baseline = currentSnapshot;
+    baseline.saved = true;
+    server.send(200, "text/plain", "Baseline Saved");
+  } else if (type == "take_snapshot") {
+    takeSnapshot(&currentSnapshot);
+    server.send(200, "text/plain", "Snapshot Taken");
   } else {
     server.send(400, "text/plain", "Unknown action");
   }
 }
 
 void handleApiData() {
-  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-  server.send(200, "application/json", "");
-
-  char buffer[512];
+  // Add CORS headers
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
   
-  server.sendContent("{\"wifi\":[");
+  Serial.printf("[WEB] API data request, apCount=%d, bleCount=%d\n", apCount, bleDeviceCount);
+  
+  // Use a large static buffer to build JSON response
+  static char jsonBuffer[8192];
+  int pos = 0;
+  
+  pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, "{\"wifi\":[");
 
-  for (int i = 0; i < apCount; i++) {
-    if (i > 0) server.sendContent(",");
+  for (int i = 0; i < apCount && pos < sizeof(jsonBuffer) - 256; i++) {
+    if (i > 0) pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, ",");
     
     char bssidStr[18];
     snprintf(bssidStr, 18, "%02X:%02X:%02X:%02X:%02X:%02X",
@@ -244,19 +318,19 @@ void handleApiData() {
       }
     }
     
-    snprintf(buffer, sizeof(buffer),
-      "{\"ssid\":\"%s\",\"bssid\":\"%s\",\"rssi\":%d,\"ch\":%d,\"sec\":%d,\"vendor\":\"%s\",\"distance\":%d}",
+    char grade = getQualityGrade(&apList[i]);
+    pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos,
+      "{\"ssid\":\"%s\",\"bssid\":\"%s\",\"rssi\":%d,\"ch\":%d,\"sec\":%d,\"vendor\":\"%s\",\"distance\":%d,\"grade\":\"%c\"}",
       ssidSafe, bssidStr, apList[i].rssi, apList[i].primary, apList[i].authmode,
-      vendor ? vendor : "Unknown", estimateDistance(apList[i].rssi));
-    server.sendContent(buffer);
+      vendor ? vendor : "Unknown", (int)estimateDistance(apList[i].rssi), grade);
   }
 
-  server.sendContent("],\"ble\":[");
+  pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, "],\"ble\":[");
 
   bool first = true;
-  for (int i = 0; i < bleDeviceCount; i++) {
+  for (int i = 0; i < bleDeviceCount && pos < sizeof(jsonBuffer) - 256; i++) {
     if (bleDevices[i].isActive) {
-      if (!first) server.sendContent(",");
+      if (!first) pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, ",");
       first = false;
       
       char nameSafe[33];
@@ -268,26 +342,24 @@ void handleApiData() {
         }
       }
       
-      snprintf(buffer, sizeof(buffer),
+      pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos,
         "{\"name\":\"%s\",\"addr\":\"%s\",\"rssi\":%d,\"type\":%d,\"hasName\":%s}",
         nameSafe, bleDevices[i].address, bleDevices[i].rssi, bleDevices[i].advType,
         bleDevices[i].hasName ? "true" : "false");
-      server.sendContent(buffer);
     }
   }
 
-  server.sendContent("],\"graph\":[");
+  pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, "],\"graph\":[");
 
-  for (int i = 0; i < WALK_HISTORY_SIZE; i++) {
-    if (i > 0) server.sendContent(",");
-    snprintf(buffer, sizeof(buffer), "%d", walkTest.rssiHistory[i]);
-    server.sendContent(buffer);
+  for (int i = 0; i < WALK_HISTORY_SIZE && pos < sizeof(jsonBuffer) - 64; i++) {
+    if (i > 0) pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, ",");
+    pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, "%d", walkTest.rssiHistory[i]);
   }
   
-  server.sendContent("],\"events\":[");
+  pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, "],\"events\":[");
 
-  for (int i = 0; i < eventCount; i++) {
-    if (i > 0) server.sendContent(",");
+  for (int i = 0; i < eventCount && pos < sizeof(jsonBuffer) - 128; i++) {
+    if (i > 0) pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, ",");
     
     char msgSafe[41];
     strncpy(msgSafe, eventLog[i].message, 40);
@@ -298,15 +370,14 @@ void handleApiData() {
       }
     }
     
-    snprintf(buffer, sizeof(buffer),
+    pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos,
       "{\"type\":%d,\"msg\":\"%s\",\"ts\":%lu}",
       eventLog[i].type, msgSafe, eventLog[i].timestamp);
-    server.sendContent(buffer);
   }
   
-  server.sendContent("],\"rogue\":[");
-  for (int i = 0; i < rogueCount; i++) {
-    if (i > 0) server.sendContent(",");
+  pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, "],\"rogue\":[");
+  for (int i = 0; i < rogueCount && pos < sizeof(jsonBuffer) - 256; i++) {
+    if (i > 0) pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, ",");
     
     char bssid1Str[18], bssid2Str[18];
     snprintf(bssid1Str, 18, "%02X:%02X:%02X:%02X:%02X:%02X",
@@ -325,14 +396,72 @@ void handleApiData() {
       }
     }
     
-    snprintf(buffer, sizeof(buffer),
+    pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos,
       "{\"ssid\":\"%s\",\"bssid1\":\"%s\",\"bssid2\":\"%s\"}",
       ssidSafe, bssid1Str, bssid2Str);
-    server.sendContent(buffer);
   }
 
-  server.sendContent("]}");
-  server.sendContent(""); // End of chunks
+  // Hidden SSIDs
+  pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, "],\"hidden\":[");
+  for (int i = 0; i < hiddenCount && pos < sizeof(jsonBuffer) - 128; i++) {
+    if (i > 0) pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, ",");
+    char hSafe[33];
+    strncpy(hSafe, hiddenList[i].ssid, 32);
+    hSafe[32] = '\0';
+    for (int j = 0; hSafe[j]; j++) {
+      if ((unsigned char)hSafe[j] < 32 || hSafe[j] == '"' || hSafe[j] == '\\') hSafe[j] = '?';
+    }
+    pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, "{\"ssid\":\"%s\",\"rssi\":%d,\"ch\":%d}", hSafe, hiddenList[i].rssi, hiddenList[i].channel);
+  }
+
+  // Session stats
+  pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, "],\"session\":{");
+  pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos,
+    "\"uptime\":%lu,\"totalAPs\":%lu,\"peakPPS\":%lu,\"totalPkts\":%lu,\"totalDeauth\":%lu,\"deauthPS\":%lu,\"attackActive\":%s,\"deauthCh\":%d",
+    (unsigned long)(millis() - sessionStart), (unsigned long)totalAPsFound,
+    (unsigned long)peakPPS, (unsigned long)totalPackets,
+    (unsigned long)totalDeauthDetected, (unsigned long)deauthPerSecond,
+    attackActive ? "true" : "false", (int)deauthChannel);
+
+  // Security breakdown
+  pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, "},\"security\":{");
+  pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, "\"open\":%d,\"wep\":%d,\"wpa\":%d,\"wpa2\":%d,\"wpa3\":%d",
+    secOpen, secWEP, secWPA, secWPA2, secWPA3);
+
+  // RF Health
+  pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, "},\"rfHealth\":{");
+  uint8_t rfLoad = liveLoad();
+  pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, "\"load\":%d,\"quality\":\"%s\",\"insight\":\"%s\",\"bestCh\":%d,\"worstCh\":%d",
+    rfLoad, loadQuality(rfLoad), channelInsight(), bestChannel(), worstChannel());
+
+  // Walk test status
+  pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, "},\"walkActive\":%s",
+    walkTest.active ? "true" : "false");
+
+  // Baseline data
+  pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, ",\"baseline\":{");
+  pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos,
+    "\"saved\":%s,\"ts\":%lu,\"bAPs\":%d,\"bRSSI\":%d,\"bPkts\":%lu,\"cAPs\":%d,\"cRSSI\":%d,\"cPkts\":%lu",
+    baseline.saved ? "true" : "false",
+    baseline.saved ? (unsigned long)baseline.timestamp : 0UL,
+    baseline.totalAPs, baseline.avgRSSI, (unsigned long)baseline.totalPackets,
+    currentSnapshot.totalAPs, currentSnapshot.avgRSSI, (unsigned long)currentSnapshot.totalPackets);
+
+  // Channel distributions
+  pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, ",\"chDist\":[");
+  for (int i = 0; i < 13 && pos < sizeof(jsonBuffer) - 64; i++) {
+    if (i > 0) pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, ",");
+    pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, "%d", currentSnapshot.channelDist[i]);
+  }
+  pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, "],\"chDistB\":[");
+  for (int i = 0; i < 13 && pos < sizeof(jsonBuffer) - 64; i++) {
+    if (i > 0) pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, ",");
+    pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, "%d", baseline.channelDist[i]);
+  }
+  pos += snprintf(jsonBuffer + pos, sizeof(jsonBuffer) - pos, "]}}");
+  
+  Serial.printf("[WEB] Sending JSON response, len=%d\n", pos);
+  server.send(200, "application/json", jsonBuffer);
 }
 
 void handlePacketData() {
@@ -386,6 +515,13 @@ void handlePacketData() {
     server.sendContent(buffer);
   }
   
+  server.sendContent("],\"overlap\":[");
+  for (int i = 1; i <= MAX_CHANNEL; i++) {
+    if (i > 1) server.sendContent(",");
+    snprintf(buffer, sizeof(buffer), "%d", countOverlappingAPs(i));
+    server.sendContent(buffer);
+  }
+
   server.sendContent("],\"packets\":[");
   int count = 0;
   for (int i = 0; i < MAX_PKT_LOG && count < MAX_PKT_LOG; i++) {
@@ -423,19 +559,68 @@ void handlePacketData() {
   server.sendContent("");
 }
 
+void handleMonitorData() {
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "application/json", "");
+
+  char buffer[256];
+  server.sendContent("{\"devices\":[");
+
+  bool first = true;
+  for (int i = 0; i < MAX_MONITORED_DEVICES; i++) {
+    if (!monitoredDevices[i].active) continue;
+    if (!first) server.sendContent(",");
+    first = false;
+
+    char macStr[18];
+    if (monitoredDevices[i].type == 0) {
+      snprintf(macStr, 18, "%02X:%02X:%02X:%02X:%02X:%02X",
+        monitoredDevices[i].bssid[0], monitoredDevices[i].bssid[1],
+        monitoredDevices[i].bssid[2], monitoredDevices[i].bssid[3],
+        monitoredDevices[i].bssid[4], monitoredDevices[i].bssid[5]);
+    } else {
+      strncpy(macStr, monitoredDevices[i].bleAddr, 17);
+      macStr[17] = '\0';
+    }
+
+    char nameSafe[33];
+    strncpy(nameSafe, monitoredDevices[i].name, 32);
+    nameSafe[32] = '\0';
+    for (int j = 0; nameSafe[j]; j++) {
+      if ((unsigned char)nameSafe[j] < 32 || nameSafe[j] == '"' || nameSafe[j] == '\\') nameSafe[j] = '?';
+    }
+
+    snprintf(buffer, sizeof(buffer),
+      "{\"type\":%d,\"mac\":\"%s\",\"name\":\"%s\",\"rssi\":%d,\"ch\":%d,\"first\":%lu,\"last\":%lu,\"seen\":%d,\"present\":%s}",
+      monitoredDevices[i].type, macStr, nameSafe,
+      monitoredDevices[i].rssi, monitoredDevices[i].channel,
+      (unsigned long)monitoredDevices[i].firstSeen,
+      (unsigned long)monitoredDevices[i].lastSeen,
+      monitoredDevices[i].seenCount,
+      monitoredDevices[i].isPresent ? "true" : "false");
+    server.sendContent(buffer);
+  }
+
+  snprintf(buffer, sizeof(buffer), "],\"count\":%d,\"active\":%s}",
+    monitoredDeviceCount, deviceMonitorActive ? "true" : "false");
+  server.sendContent(buffer);
+  server.sendContent("");
+}
+
 void startWebServer() {
   if (webServerRunning) return;
 
-  if (!SPIFFS.begin(true)) {
-    Serial.println("[ERROR] SPIFFS mount failed!");
-  }
+  Serial.println("[WEB] Starting web server...");
 
+  // Stop any existing WiFi operations
   WiFi.disconnect(true);
-  WiFi.mode(WIFI_OFF);
-  delay(100);
-
-  WiFi.mode(WIFI_AP);
+  WiFi.softAPdisconnect(true);
+  delay(200);
+  
+  // Use AP_STA mode for best compatibility
+  WiFi.mode(WIFI_AP_STA);
   WiFi.setSleep(false);
+  delay(100);
   
   IPAddress localIP(192, 168, 4, 1);
   IPAddress gateway(192, 168, 4, 1);
@@ -450,12 +635,13 @@ void startWebServer() {
   const char* pass = settings.apPassword[0] ? settings.apPassword : "";
   bool result;
   
+  // Start AP with default password if none set
   if (pass[0] == '\0') {
-    result = WiFi.softAP(ssid, NULL, 6, 0, 4);
-    Serial.println("[INFO] Starting OPEN network (no password)");
+    result = WiFi.softAP(ssid, "12345678", 6, 0, 4);
+    Serial.println("[INFO] Starting AP with password: 12345678");
   } else {
     result = WiFi.softAP(ssid, pass, 6, 0, 4);
-    Serial.printf("[INFO] Starting secure network, SSID: %s\n", ssid);
+    Serial.printf("[INFO] Starting AP, SSID: %s\n", ssid);
   }
   
   if (!result) {
@@ -463,7 +649,10 @@ void startWebServer() {
     return;
   }
   
-  delay(1000);
+  delay(500);
+  
+  Serial.print("[INFO] AP IP: ");
+  Serial.println(WiFi.softAPIP());
 
   WiFi.softAPmacAddress(ownApMac);
   Serial.printf("[INFO] AP MAC (own): %02X:%02X:%02X:%02X:%02X:%02X\n",
@@ -478,8 +667,19 @@ void startWebServer() {
   dnsServer.start(53, "esp32.util", localIP);
 
   server.on("/", handleRoot);
+  server.on("/style.css", []() {
+    File f = SPIFFS.open("/style.css", "r");
+    if (f) { server.streamFile(f, "text/css"); f.close(); }
+    else server.send(404, "text/plain", "CSS not found");
+  });
+  server.on("/app.js", []() {
+    File f = SPIFFS.open("/app.js", "r");
+    if (f) { server.streamFile(f, "application/javascript"); f.close(); }
+    else server.send(404, "text/plain", "JS not found");
+  });
   server.on("/api/data", handleApiData);
   server.on("/api/packets", handlePacketData);
+  server.on("/api/monitor", handleMonitorData);
   server.on("/api/action", HTTP_POST, handleAction);
   server.on("/api/settings", handleSettings);
   
@@ -492,32 +692,41 @@ void stopWebServer() {
   server.stop();
   dnsServer.stop();
   stopSniffer();
-  // Use raw IDF call; Arduino's WiFi.mode(WIFI_OFF) calls esp_wifi_deinit() which
-  // breaks enterSnifferMode() later (esp_wifi_start returns ESP_ERR_WIFI_NOT_INIT)
-  esp_wifi_stop();
+  if (deviceMonitorActive) {
+    esp_wifi_set_promiscuous(false);
+    deviceMonitorActive = false;
+    webMonitorMode = false;
+  }
+  
+  // Disconnect AP and restore STA mode for normal scanning
+  WiFi.softAPdisconnect(true);
+  WiFi.disconnect(true);
   delay(200);
+  
+  // Restore STA mode for normal WiFi scanning functionality
+  WiFi.mode(WIFI_STA);
+  delay(100);
+  
   webServerRunning = false;
-  Serial.println("[INFO] Web server stopped, WiFi driver stopped");
+  Serial.println("[INFO] Web server stopped, restored STA mode");
 }
 
 void handleWebServerLoop() {
   if (!webServerRunning) return;
   dnsServer.processNextRequest();
   server.handleClient();
-  
-  static uint32_t lastWifiScan = 0;
+
   static uint32_t lastBleScan = 0;
-  static bool scanInProgress = false;
   uint32_t now = millis();
   
   // WiFi.scanNetworks() kills promiscuous mode; pause sniffer before scan and restore after
   static bool snifferWasPaused = false;
 
-  if (triggerWifiScan && !scanInProgress) {
+  if (triggerWifiScan && !webScanInProgress) {
     triggerWifiScan = false;
-    scanInProgress = true;
+    webScanInProgress = true;
 
-    if (snifferActive) {
+    if (snifferActive || deviceMonitorActive) {
       esp_wifi_set_promiscuous(false);
       snifferWasPaused = true;
     }
@@ -537,17 +746,26 @@ void handleWebServerLoop() {
         apList[i].authmode = WiFi.encryptionType(i);
       }
       WiFi.scanDelete();
-      scanInProgress = false;
-      lastWifiScan = now;
+      webScanInProgress = false;
+      webLastWifiScan = now;
       if (snifferWasPaused) {
         snifferWasPaused = false;
-        esp_wifi_set_promiscuous_rx_cb(sniffer);
+        esp_wifi_set_promiscuous_rx_cb(deviceMonitorActive ? deviceMonitorSniffer : sniffer);
+        esp_wifi_set_promiscuous(true);
+      }
+    } else {
+      // Scan failed to start - restore state immediately
+      WiFi.scanDelete();
+      webScanInProgress = false;
+      if (snifferWasPaused) {
+        snifferWasPaused = false;
+        esp_wifi_set_promiscuous_rx_cb(deviceMonitorActive ? deviceMonitorSniffer : sniffer);
         esp_wifi_set_promiscuous(true);
       }
     }
   }
 
-  if (scanInProgress) {
+  if (webScanInProgress) {
     int16_t n = WiFi.scanComplete();
     if (n >= 0) {
       apCount = min((int)n, (int)MAX_APS);
@@ -561,17 +779,27 @@ void handleWebServerLoop() {
         apList[i].authmode = WiFi.encryptionType(i);
       }
       WiFi.scanDelete();
-      scanInProgress = false;
-      lastWifiScan = now;
+      webScanInProgress = false;
+      webLastWifiScan = now;
       if (snifferWasPaused) {
         snifferWasPaused = false;
-        esp_wifi_set_promiscuous_rx_cb(sniffer);
+        esp_wifi_set_promiscuous_rx_cb(deviceMonitorActive ? deviceMonitorSniffer : sniffer);
+        esp_wifi_set_promiscuous(true);
+      }
+    } else if (n == WIFI_SCAN_FAILED) {
+      // Scan failed - restore state so monitor isn't permanently killed
+      WiFi.scanDelete();
+      webScanInProgress = false;
+      if (snifferWasPaused) {
+        snifferWasPaused = false;
+        esp_wifi_set_promiscuous_rx_cb(deviceMonitorActive ? deviceMonitorSniffer : sniffer);
         esp_wifi_set_promiscuous(true);
       }
     }
   }
 
-  if (!scanInProgress && now - lastWifiScan > 10000 && !snifferActive) {
+  // Auto-scan every 15 seconds if no recent manual scan and not in sniffer/monitor mode
+  if (!webScanInProgress && now - webLastWifiScan > 15000 && !snifferActive && !deviceMonitorActive) {
     triggerWifiScan = true;
   }
   
@@ -588,6 +816,21 @@ void handleWebServerLoop() {
   if (!bleScanning && now - lastBleScan > 5000) {
     startBLEScan();
     lastBleScan = now;
+  }
+
+  // Device monitor: check timeouts and update BLE devices
+  if (deviceMonitorActive) {
+    static uint32_t lastMonitorUpdate = 0;
+    if (now - lastMonitorUpdate > 1000) {
+      checkDeviceTimeouts();
+      // Add BLE devices to monitor
+      for (int i = 0; i < bleDeviceCount; i++) {
+        if (bleDevices[i].isActive) {
+          addOrUpdateBLEDevice(bleDevices[i].address, bleDevices[i].name, bleDevices[i].rssi);
+        }
+      }
+      lastMonitorUpdate = now;
+    }
   }
 
   if (walkTest.active) {

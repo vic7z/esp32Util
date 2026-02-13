@@ -14,6 +14,8 @@
 #include "alerts.h"
 #include "power.h"
 #include "device_monitor.h"
+#include <SPIFFS.h>
+#include <WiFi.h>
 
 U8G2_SSD1306_128X64_NONAME_1_HW_I2C oled(U8G2_R0, U8X8_PIN_NONE, 5, 4);
 Adafruit_NeoPixel rgb(RGB_LED_COUNT, RGB_LED_PIN, NEO_GRB + NEO_KHZ800);
@@ -74,6 +76,7 @@ unsigned long lastBackFired = 0;
 ButtonEvent updateButton() {
   unsigned long now = millis();
 
+  // Back button handling
   bool backBtn = digitalRead(BTN_BACK_PIN);
   if (backBtn != lastBackReading) {
     lastBackDebounce = now;
@@ -81,25 +84,36 @@ ButtonEvent updateButton() {
   }
 
   if (now - lastBackDebounce >= DEBOUNCE_MS) {
+    // Button just pressed (transition from HIGH to LOW)
     if (backBtn == LOW && !backPressed) {
       backPressed = true;
       backPressStart = now;
-    } else if (backBtn == HIGH && backPressed && (now - lastBackFired > BUTTON_COOLDOWN_MS)) {
-      unsigned long backHeld = now - backPressStart;
-      backPressed = false;
-      backPressStart = 0;
-      lastBackFired = now;
+    }
+    // Button just released (transition from LOW to HIGH)
+    else if (backBtn == HIGH && backPressed) {
+      // Check cooldown to prevent accidental double-fires from bounce
+      if (now - lastBackFired >= BUTTON_COOLDOWN_MS) {
+        unsigned long backHeld = now - backPressStart;
+        backPressed = false;
+        backPressStart = 0;
+        lastBackFired = now;
 
-      if (backHeld >= 1500) {
-        Serial.println("[BTN] BACK LONG - SLEEP");
-        return BTN_BACK_LONG;
+        if (backHeld >= 1500) {
+          Serial.println("[BTN] BACK LONG - SLEEP");
+          return BTN_BACK_LONG;
+        } else {
+          Serial.println("[BTN] BACK");
+          return BTN_BACK;
+        }
       } else {
-        Serial.println("[BTN] BACK");
-        return BTN_BACK;
+        // In cooldown period, just reset pressed state without triggering
+        backPressed = false;
+        backPressStart = 0;
       }
     }
   }
 
+  // Action button handling
   bool r = digitalRead(BTN_ACTION);
   if (r != lastReading) {
     lastDebounce = now;
@@ -107,21 +121,30 @@ ButtonEvent updateButton() {
   }
 
   if (now - lastDebounce >= DEBOUNCE_MS) {
+    // Button just pressed
     if (r == LOW && !actionPressed) {
       actionPressed = true;
       actionPressStart = now;
-    } else if (r == HIGH && actionPressed && (now - lastActionFired > BUTTON_COOLDOWN_MS)) {
-      unsigned long held = now - actionPressStart;
-      actionPressed = false;
-      actionPressStart = 0;
-      lastActionFired = now;
+    }
+    // Button just released
+    else if (r == HIGH && actionPressed) {
+      if (now - lastActionFired >= BUTTON_COOLDOWN_MS) {
+        unsigned long held = now - actionPressStart;
+        actionPressed = false;
+        actionPressStart = 0;
+        lastActionFired = now;
 
-      if (held >= LONG_PRESS_MS) {
-        Serial.printf("[BTN] LONG (held: %lums)\n", held);
-        return BTN_LONG;
+        if (held >= LONG_PRESS_MS) {
+          Serial.printf("[BTN] LONG (held: %lums)\n", held);
+          return BTN_LONG;
+        }
+        Serial.printf("[BTN] SHORT (held: %lums)\n", held);
+        return BTN_SHORT;
+      } else {
+        // In cooldown, just reset state
+        actionPressed = false;
+        actionPressStart = 0;
       }
-      Serial.printf("[BTN] SHORT (held: %lums)\n", held);
-      return BTN_SHORT;
     }
   }
 
@@ -137,6 +160,7 @@ void buttonAwareDelay(unsigned long ms) {
     if (ev != BTN_NONE) {
       pendingButton = ev;
       lastActivity = millis();
+      return; // Break early so button is processed quickly
     }
     delay(10); // Small yield to avoid tight spin
   }
@@ -147,7 +171,7 @@ void buttonAwareDelay(unsigned long ms) {
 const char* bootLines[BOOT_MAX_LINES];
 uint8_t bootStatus[BOOT_MAX_LINES];
 uint8_t bootLineCount = 0;
-uint8_t bootTotalSteps = 8;
+uint8_t bootTotalSteps = 9;
 
 void drawBootScreen() {
   uint8_t startIdx = 0;
@@ -206,7 +230,8 @@ void bootLog(const char* msg) {
   }
   drawBootScreen();
   Serial.printf("[BOOT] %s\n", msg);
-  delay(150); // Brief pause so each line is visible
+  // Button-aware delay so presses aren't lost during boot
+  buttonAwareDelay(150);
 }
 
 void bootOK() {
@@ -214,7 +239,7 @@ void bootOK() {
     bootStatus[bootLineCount - 1] = 1;
   }
   drawBootScreen();
-  delay(100);
+  buttonAwareDelay(100);
 }
 
 void setup() {
@@ -239,8 +264,18 @@ void setup() {
   bootLog("Loading settings");
   bootOK();
 
+  bootLog("Mounting SPIFFS");
+  if (SPIFFS.begin(true)) {
+    bootOK();
+  } else {
+    Serial.println("[ERROR] SPIFFS mount failed!");
+  }
+
   bootLog("Starting WiFi modem");
   initWiFi();
+  // Set STA mode for normal operation (AP mode used only when web server starts)
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
   bootOK();
 
   bootLog("Starting BLE modem");
@@ -263,7 +298,17 @@ void setup() {
   if (RGB_ENABLED) setRGB(RGB_GREEN);
   Serial.println("ESP32-C3 Wi-Fi & BLE Analyzer Ready");
 
-  delay(1500); // Show completed boot for 1.5 seconds
+  // Show completed boot for 1.5 seconds, but keep polling buttons
+  unsigned long bootDisplayStart = millis();
+  while (millis() - bootDisplayStart < 1500) {
+    ButtonEvent ev = updateButton();
+    if (ev != BTN_NONE) {
+      pendingButton = ev;
+      lastActivity = millis();
+      break; // Exit early if button pressed
+    }
+    delay(10);
+  }
   drawMenu();
 }
 

@@ -573,8 +573,16 @@ void handleApDetail(ButtonEvent ev) {
 void handleAPWalkTest(ButtonEvent ev) {
   if (ev == BTN_SHORT) {
     walkTest.viewMode = (walkTest.viewMode + 1) % 2;
-    delay(50);
     drawAPWalkTest();
+    return;
+  }
+
+  if (ev == BTN_BACK) {
+    currentScreen = SCREEN_AP_DETAIL;
+    stopAllWifi();
+    walkTest.active = false;
+    walkTest.viewMode = 0;
+    drawApDetail();
     return;
   }
 
@@ -603,15 +611,6 @@ void handleAPWalkTest(ButtonEvent ev) {
     }
 
     scanState.lastScan = millis();
-  }
-
-  if (ev == BTN_BACK) {
-    currentScreen = SCREEN_AP_DETAIL;
-    stopAllWifi();
-    walkTest.active = false;
-    walkTest.viewMode = 0;
-    drawApDetail();
-    return;
   }
 
   drawAPWalkTest();
@@ -734,8 +733,15 @@ void handleBLEDetail(ButtonEvent ev) {
 void handleBLEWalkTest(ButtonEvent ev) {
   if (ev == BTN_SHORT) {
     walkTest.viewMode = (walkTest.viewMode + 1) % 2;
-    delay(50);
     drawBLEWalkTest();
+    return;
+  }
+
+  if (ev == BTN_BACK) {
+    currentScreen = SCREEN_BLE_DETAIL;
+    stopBLEScan();
+    walkTest.viewMode = 0;
+    drawBLEDetail();
     return;
   }
 
@@ -761,14 +767,6 @@ void handleBLEWalkTest(ButtonEvent ev) {
     }
 
     scanState.lastScan = millis();
-  }
-
-  if (ev == BTN_BACK) {
-    currentScreen = SCREEN_BLE_DETAIL;
-    stopBLEScan();
-    walkTest.viewMode = 0;
-    drawBLEDetail();
-    return;
   }
 
   drawBLEWalkTest();
@@ -990,6 +988,13 @@ void handleWhyIsItSlow(ButtonEvent ev) {
 }
 
 void handleChannelRecommendation(ButtonEvent ev) {
+  if (ev == BTN_BACK) {
+    currentScreen = SCREEN_INSIGHTS_MENU;
+    stopAllWifi();
+    drawInsightsMenu();
+    return;
+  }
+
   if (millis() - scanState.lastScan > 3000) {
     enterScanMode();
     startApScan();
@@ -998,25 +1003,9 @@ void handleChannelRecommendation(ButtonEvent ev) {
     scanState.lastScan = millis();
   }
   drawChannelRecommendation();
-
-  if (ev == BTN_BACK) {
-    currentScreen = SCREEN_INSIGHTS_MENU;
-    stopAllWifi();
-    drawInsightsMenu();
-  }
 }
 
 void handleEnvironmentChange(ButtonEvent ev) {
-  if (millis() - scanState.lastEnvCheck > 2000) {
-    enterScanMode();
-    startApScan();
-    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
-    fetchApResults(false);
-    takeSnapshot(&currentSnapshot);
-    scanState.lastEnvCheck = millis();
-  }
-  drawEnvironmentChange();
-
   if (ev == BTN_LONG) {
     baseline = currentSnapshot;
     logEvent(1, "Baseline saved");
@@ -1026,10 +1015,28 @@ void handleEnvironmentChange(ButtonEvent ev) {
     currentScreen = SCREEN_INSIGHTS_MENU;
     stopAllWifi();
     drawInsightsMenu();
+    return;
   }
+
+  if (millis() - scanState.lastEnvCheck > 2000) {
+    enterScanMode();
+    startApScan();
+    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
+    fetchApResults(false);
+    takeSnapshot(&currentSnapshot);
+    scanState.lastEnvCheck = millis();
+  }
+  drawEnvironmentChange();
 }
 
 void handleQuickSnapshot(ButtonEvent ev) {
+  if (ev == BTN_BACK) {
+    currentScreen = SCREEN_INSIGHTS_MENU;
+    stopAllWifi();
+    drawInsightsMenu();
+    return;
+  }
+
   if (millis() - scanState.lastScan > 2000) {
     enterScanMode();
     startApScan();
@@ -1040,13 +1047,6 @@ void handleQuickSnapshot(ButtonEvent ev) {
   }
 
   drawQuickSnapshot();
-
-  if (ev == BTN_BACK) {
-    currentScreen = SCREEN_INSIGHTS_MENU;
-    stopAllWifi();
-    drawInsightsMenu();
-    return;
-  }
 }
 
 static uint8_t scorecardPage = 0;
@@ -1085,6 +1085,13 @@ void handleEventLog(ButtonEvent ev) {
 }
 
 void handleBaselineCompare(ButtonEvent ev) {
+  if (ev == BTN_BACK) {
+    currentScreen = SCREEN_HISTORY_MENU;
+    stopAllWifi();
+    drawHistoryMenu();
+    return;
+  }
+
   if (millis() - scanState.lastBaselineUpdate > 2000) {
     enterScanMode();
     startApScan();
@@ -1095,12 +1102,6 @@ void handleBaselineCompare(ButtonEvent ev) {
   }
 
   drawBaselineCompare();
-
-  if (ev == BTN_BACK) {
-    currentScreen = SCREEN_HISTORY_MENU;
-    stopAllWifi();
-    drawHistoryMenu();
-  }
 }
 
 void handleBatteryPower(ButtonEvent ev) {

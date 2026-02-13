@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(arduino-cli compile:*)",
+      "Bash(arduino-cli upload:*)",
+      "Bash(\"%LOCALAPPDATA%/Arduino15/packages/esp32/tools/mkspiffs/0.2.3/mkspiffs.exe\" -c data -b 4096 -p 256 -s 917504 spiffs.bin)",
+      "Bash(cmd /c \"\"\"%LOCALAPPDATA%\\\\Arduino15\\\\packages\\\\esp32\\\\tools\\\\mkspiffs\\\\0.2.3\\\\mkspiffs.exe\"\" -c data -b 4096 -p 256 -s 917504 spiffs.bin\")",
+      "Bash(cmd /c \"\"\"%LOCALAPPDATA%\\\\Arduino15\\\\packages\\\\esp32\\\\tools\\\\esptool_py\\\\5.1.0\\\\esptool.exe\"\" --chip esp32c3 --port COM3 --baud 921600 write_flash 0x310000 spiffs.bin\")",
+      "Bash(C:/Users/pooja/AppData/Local/Arduino15/packages/esp32/tools/mkspiffs/0.2.3/mkspiffs.exe:*)",
+      "Bash(C:/Users/pooja/AppData/Local/Arduino15/packages/esp32/tools/esptool_py/5.1.0/esptool.exe:*)",
+      "Bash(powershell:*)",
+      "Bash(where:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(\"C:\\\\Users\\\\pooja\\\\AppData\\\\Local\\\\Arduino15\\\\packages\\\\esp32\\\\tools\\\\mkspiffs\\\\0.2.3\\\\mkspiffs.exe\" -c \"C:\\\\Users\\\\pooja\\\\Downloads\\\\esp32Util\\\\data\" -b 4096 -p 256 -s 0xE0000 \"C:\\\\Users\\\\pooja\\\\Downloads\\\\esp32Util\\\\spiffs.bin\")",
+      "Bash(\"C:\\\\Users\\\\pooja\\\\AppData\\\\Local\\\\Arduino15\\\\packages\\\\esp32\\\\tools\\\\esptool\\\\v5.1.0\\\\esptool.exe\" --chip esp32c3 --port COM3 --baud 921600 write_flash 0x310000 \"C:\\\\Users\\\\pooja\\\\Downloads\\\\esp32Util\\\\spiffs.bin\")",
+      "Bash(\"/c/Users/pooja/AppData/Local/Arduino15/packages/esp32/tools/mkspiffs/0.2.3/mkspiffs.exe\" -c \"/c/Users/pooja/Downloads/esp32Util/data\" -b 4096 -p 256 -s 0xE0000 \"/c/Users/pooja/Downloads/esp32Util/spiffs.bin\")",
+      "Bash(\"/c/Users/pooja/AppData/Local/Arduino15/packages/esp32/tools/esptool_py/5.1.0/esptool.exe\" --chip esp32c3 --port COM3 --baud 921600 write_flash 0x310000 \"/c/Users/pooja/Downloads/esp32Util/spiffs.bin\")"
+    ]
+  }
+}

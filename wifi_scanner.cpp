@@ -63,6 +63,8 @@ void initWiFi() {
   esp_wifi_init(&cfg);
 }
 
+static bool snifferRunning = false;
+
 void stopAllWifi() {
   esp_wifi_scan_stop();
   esp_wifi_set_promiscuous(false);
@@ -70,9 +72,20 @@ void stopAllWifi() {
   extern uint8_t snifferChannel;
   snifferActive = false;
   snifferChannel = 0;
+  snifferRunning = false;
+}
+
+void switchSnifferChannel(uint8_t ch) {
+  esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
 }
 
 void enterSnifferMode(uint8_t ch) {
+  // Fast path: already in sniffer mode, just switch channel
+  if (snifferRunning) {
+    esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
+    return;
+  }
+
   stopAllWifi();
 
   esp_err_t err = esp_wifi_stop();
@@ -88,10 +101,11 @@ void enterSnifferMode(uint8_t ch) {
   esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
   esp_wifi_set_promiscuous_rx_cb(sniffer);
   esp_wifi_set_promiscuous(true);
+  snifferRunning = true;
 }
 
 void enterScanMode() {
-  stopAllWifi();
+  stopAllWifi();  // also resets snifferRunning
   esp_wifi_set_mode(WIFI_MODE_STA);
   esp_wifi_start();
 }

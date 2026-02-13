@@ -4,154 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>ESP32 RF Analyzer</title>
-<style>
-:root{--bg:#101014;--surface:#18181e;--card:#1e1e26;--border:#2a2a36;--text:#eaeaf0;--muted:#7a7a8c;--accent:#7c6aef;--accent2:#6366f1;--green:#34d399;--orange:#fbbf24;--red:#f87171;--shadow:0 1px 3px rgba(0,0,0,.4);--radius:12px;--transition:.25s cubic-bezier(.4,0,.2,1)}
-[data-theme="light"]{--bg:#f4f4f8;--surface:#ffffff;--card:#ffffff;--border:#e4e4ec;--text:#1a1a2e;--muted:#6b6b80;--accent:#6366f1;--accent2:#7c6aef;--shadow:0 1px 3px rgba(0,0,0,.08);--green:#16a34a;--orange:#d97706;--red:#dc2626}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;min-height:100vh;transition:background var(--transition),color var(--transition)}
-@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
-
-.header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 24px;position:sticky;top:0;z-index:100;transition:background var(--transition),border var(--transition)}
-.header-content{max-width:1400px;margin:0 auto;display:flex;justify-content:space-between;align-items:center}
-.logo{display:flex;align-items:center;gap:12px}
-.logo-icon{width:36px;height:36px;background:var(--accent);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff;font-weight:700}
-.logo-text h1{font-size:1rem;font-weight:700;color:var(--text);transition:color var(--transition)}
-.logo-text span{font-size:.7rem;color:var(--muted);font-weight:500}
-.header-right{display:flex;align-items:center;gap:12px}
-.status{display:flex;align-items:center;gap:6px;padding:6px 14px;background:var(--bg);border:1px solid var(--border);border-radius:20px;font-size:.8rem;color:var(--muted);transition:all var(--transition)}
-.status-dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
-.status.error .status-dot{background:var(--red)}
-
-.theme-toggle{width:40px;height:40px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--muted);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all var(--transition)}
-.theme-toggle:hover{border-color:var(--accent);color:var(--accent);background:var(--surface)}
-
-.nav{display:flex;gap:2px;padding:8px 24px;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;transition:all var(--transition)}
-.nav::-webkit-scrollbar{display:none}
-.nav button{padding:8px 16px;background:transparent;border:none;color:var(--muted);font-size:.82rem;cursor:pointer;border-radius:8px;white-space:nowrap;transition:all .15s;font-weight:500}
-.nav button:hover{background:var(--bg);color:var(--text)}
-.nav button.active{background:var(--accent);color:#fff;font-weight:600}
-.nav button .badge{background:rgba(255,255,255,.2);padding:1px 7px;border-radius:10px;font-size:.68rem;margin-left:5px}
-.nav button:not(.active) .badge{background:var(--border);color:var(--muted)}
-
-.main{max-width:1400px;margin:0 auto;padding:20px 24px}
-.tab{display:none;animation:fadeUp .25s ease}
-.tab.active{display:block}
-
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
-.stat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;transition:all var(--transition);box-shadow:var(--shadow)}
-.stat-card:hover{border-color:var(--accent);transform:translateY(-1px)}
-.stat-card.alert{border-color:var(--red)}
-.stat-icon{font-size:1.2rem;margin-bottom:8px;opacity:.8}
-.stat-label{font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
-.stat-value{font-size:1.7rem;font-weight:700;margin-top:2px}
-
-.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:14px;overflow:hidden;box-shadow:var(--shadow);transition:all var(--transition)}
-.card-header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
-.card-title{font-size:.9rem;font-weight:600}
-.card-title .count{background:var(--bg);border:1px solid var(--border);padding:2px 10px;border-radius:20px;font-size:.75rem;color:var(--muted);margin-left:8px;transition:all var(--transition)}
-.card-body{padding:16px}
-
-.btn{padding:8px 16px;border:none;border-radius:8px;font-size:.82rem;font-weight:600;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:5px}
-.btn-primary{background:var(--accent);color:#fff}
-.btn-primary:hover{opacity:.88;transform:translateY(-1px)}
-.btn-danger{background:var(--red);color:#fff}
-.btn-danger:hover{opacity:.88}
-.btn-sm{padding:6px 12px;font-size:.78rem}
-.btn-group{display:flex;gap:6px;flex-wrap:wrap}
-
-.table-container{overflow-x:auto;border-radius:8px;background:var(--bg);max-height:400px;overflow-y:auto;border:1px solid var(--border);transition:all var(--transition)}
-table{width:100%;border-collapse:collapse;font-size:.82rem}
-th{text-align:left;padding:10px 12px;background:var(--surface);color:var(--muted);font-size:.68rem;text-transform:uppercase;position:sticky;top:0;z-index:2;white-space:nowrap;font-weight:600;letter-spacing:.03em;transition:background var(--transition)}
-td{padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;transition:background .15s}
-tr:hover td{background:rgba(99,102,241,.06)}
-[data-theme="light"] tr:hover td{background:rgba(99,102,241,.04)}
-
-.col-sig{width:50px}.col-ssid{width:25%}.col-bssid{width:130px}.col-ch{width:60px;text-align:center}.col-rssi{width:80px}.col-sec{width:90px}.col-name{width:30%}.col-addr{width:150px}.col-type{width:100px}
-.mono{font-family:'SF Mono',Consolas,'Courier New',monospace;font-size:.78rem;color:var(--muted)}
-
-.signal{display:flex;align-items:flex-end;gap:2px;height:16px;width:28px}
-.signal div{width:4px;background:var(--border);border-radius:1px;transition:background var(--transition)}
-.signal div:nth-child(1){height:25%}.signal div:nth-child(2){height:50%}.signal div:nth-child(3){height:75%}.signal div:nth-child(4){height:100%}
-.signal.good div{background:var(--green)}.signal.fair div:nth-child(-n+2){background:var(--orange)}.signal.poor div:nth-child(1){background:var(--red)}
-
-.badge{display:inline-block;padding:2px 9px;border-radius:6px;font-size:.68rem;font-weight:600;text-transform:uppercase}
-.badge-open{background:rgba(248,113,113,.12);color:var(--red)}.badge-secure{background:rgba(52,211,153,.12);color:var(--green)}.badge-wep{background:rgba(251,191,36,.12);color:var(--orange)}
-
-.channels{display:grid;grid-template-columns:repeat(13,1fr);gap:4px;height:120px;align-items:end;padding:10px;background:var(--bg);border-radius:8px;border:1px solid var(--border);transition:all var(--transition)}
-.ch-bar{background:var(--border);border-radius:4px 4px 0 0;min-height:4px;transition:all .3s;cursor:pointer;position:relative}
-.ch-bar:hover{filter:brightness(1.2)}
-.ch-bar.active{background:var(--accent)}.ch-bar.best{box-shadow:0 0 12px rgba(52,211,153,.3);background:var(--green)}.ch-bar.hot{background:var(--red)}
-
-.alert-item{display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--bg);border-radius:8px;border-left:3px solid var(--accent);margin-bottom:6px;animation:fadeUp .25s ease;transition:background var(--transition)}
-.alert-item.critical{border-left-color:var(--red);background:rgba(248,113,113,.06)}.alert-item.warning{border-left-color:var(--orange);background:rgba(251,191,36,.06)}
-[data-theme="light"] .alert-item{background:var(--bg)}
-[data-theme="light"] .alert-item.critical{background:rgba(220,38,38,.04)}
-[data-theme="light"] .alert-item.warning{background:rgba(217,119,6,.04)}
-.alert-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:.95rem;background:rgba(255,255,255,.04);flex-shrink:0}
-.alert-item.critical .alert-icon{background:rgba(248,113,113,.1)}.alert-item.warning .alert-icon{background:rgba(251,191,36,.1)}
-.alert-content{flex:1}.alert-title{font-weight:600;font-size:.85rem}.alert-meta{font-size:.72rem;color:var(--muted);margin-top:2px}
-
-.rec-card{display:flex;align-items:center;gap:12px;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border);margin-bottom:6px;transition:all var(--transition)}
-.rec-card.best{border-color:var(--green);background:rgba(52,211,153,.06)}
-[data-theme="light"] .rec-card.best{background:rgba(22,163,74,.04)}
-.rec-rank{width:28px;height:28px;border-radius:50%;background:var(--border);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.78rem}
-.rec-card.best .rec-rank{background:var(--green);color:#fff}
-.rec-info{flex:1}.rec-title{font-weight:600;font-size:.9rem}.rec-sub{font-size:.72rem;color:var(--muted)}
-
-.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
-.form-group{margin-bottom:6px}
-.form-group label{display:block;margin-bottom:5px;font-size:.78rem;color:var(--muted);font-weight:500}
-select,input{width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.85rem;transition:all var(--transition)}
-select:focus,input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(99,102,241,.15)}
-input[type="range"]{-webkit-appearance:none;background:transparent;padding:0}
-input[type="range"]::-webkit-slider-runnable-track{height:5px;background:var(--border);border-radius:3px}
-input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--accent);margin-top:-5.5px;cursor:pointer}
-.range{display:flex;align-items:center;gap:10px}.range input{flex:1}.range span{min-width:55px;text-align:right;font-family:monospace;color:var(--accent);font-weight:600;font-size:.85rem}
-
-.empty{text-align:center;padding:36px 20px;color:var(--muted)}
-.empty-icon{font-size:2.5rem;margin-bottom:8px;opacity:.35}
-.grid-2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
-
-.modal{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:1000;padding:20px;backdrop-filter:blur(4px)}
-[data-theme="light"] .modal{background:rgba(0,0,0,.4)}
-.modal.active{display:flex;animation:fadeUp .2s ease}
-.modal-content{background:var(--card);border:1px solid var(--border);border-radius:16px;max-width:480px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)}
-[data-theme="light"] .modal-content{box-shadow:0 20px 60px rgba(0,0,0,.12)}
-.pkt-modal .modal-content{max-width:800px}
-.modal-header{padding:16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
-.modal-title{font-size:1rem;font-weight:600}.modal-body{padding:16px}.modal-footer{padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end}
-.close-btn{background:none;border:none;color:var(--muted);font-size:1.4rem;cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:8px;transition:all .15s}
-.close-btn:hover{color:var(--text);background:var(--bg)}
-
-.detail-row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)}
-.detail-row:last-child{border:none}.detail-label{color:var(--muted);font-size:.82rem}.detail-value{font-weight:600}
-
-.pkt-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(85px,1fr));gap:6px;margin-bottom:14px}
-.pkt-stat{background:var(--bg);padding:10px 6px;border-radius:8px;text-align:center;border:1px solid var(--border);transition:all var(--transition)}
-.pkt-stat-value{font-size:1.1rem;font-weight:700;color:var(--accent)}.pkt-stat.alert .pkt-stat-value{color:var(--red);animation:pulse 2s infinite}
-.pkt-stat-label{font-size:.62rem;color:var(--muted);margin-top:2px;text-transform:uppercase}
-
-.pkt-content{background:var(--bg);border:1px solid var(--border);border-radius:8px;height:250px;overflow:hidden;transition:all var(--transition)}
-.pkt-graph,.pkt-log{width:100%;height:100%}.pkt-log{display:none;overflow-y:auto;padding:12px;font-family:monospace;font-size:.78rem;line-height:1.5}
-.pkt-log.active{display:block}.pkt-log.active+.pkt-graph{display:none}
-.pkt-entry{display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap}
-.pkt-time{color:var(--muted);min-width:36px;font-size:.72rem}.pkt-type{font-weight:600;min-width:52px;font-size:.72rem}.pkt-type.beacon{color:var(--green)}.pkt-type.data{color:var(--accent)}.pkt-type.deauth{color:var(--red)}.pkt-type.probe{color:var(--orange)}
-.pkt-ssid{color:var(--text);font-weight:600;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.72rem}.pkt-bssid{color:var(--muted);font-size:.68rem;min-width:100px}
-.pkt-rssi{font-weight:600;font-size:.72rem;min-width:42px}.pkt-rssi.good{color:var(--green)}.pkt-rssi.mid{color:var(--orange)}.pkt-rssi.weak{color:var(--red)}
-.pkt-ch{color:var(--muted);font-size:.72rem}
-.pkt-info{color:var(--muted);font-size:.68rem;margin-left:auto}
-
-.toggle-group{display:flex;gap:6px;margin-bottom:10px;align-items:center}
-.toggle-btn{padding:7px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);cursor:pointer;font-size:.78rem;transition:all .15s}
-.toggle-btn.active{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
-
-.toast{position:fixed;bottom:20px;right:20px;padding:12px 18px;background:var(--card);border:1px solid var(--border);border-radius:10px;z-index:2000;animation:fadeUp .25s ease;max-width:300px;box-shadow:0 8px 24px rgba(0,0,0,.2);font-size:.85rem}
-.toast.success{border-left:3px solid var(--green)}.toast.error{border-left:3px solid var(--red)}
-
-::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}::-webkit-scrollbar-track{background:transparent}
-@media(max-width:768px){.stats{grid-template-columns:repeat(2,1fr)}.grid-2{grid-template-columns:1fr}.pkt-stats{grid-template-columns:repeat(2,1fr)}.main{padding:14px 12px}.nav{padding:6px 12px}.header{padding:12px 14px}}
-</style>
+<link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <header class="header">
@@ -169,6 +22,7 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;hei
 <button onclick="showTab('ble',this)">BLE<span class="badge" id="nav-b">0</span></button>
 <button onclick="showTab('analyzer',this)">Analyzer</button>
 <button onclick="showTab('security',this)">Security<span class="badge" id="nav-s">0</span></button>
+<button onclick="showTab('monitor',this)">Clients<span class="badge" id="nav-m">0</span></button>
 <button onclick="showTab('settings',this)">Settings</button>
 </nav>
 <main class="main">
@@ -178,14 +32,22 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;hei
 <div class="stat-card" id="stat-ble"><div class="stat-icon">&#9684;</div><div class="stat-label">BLE Devices</div><div class="stat-value" id="d-b">0</div></div>
 <div class="stat-card" id="stat-alerts"><div class="stat-icon">&#9888;</div><div class="stat-label">Alerts</div><div class="stat-value" id="d-a" style="color:var(--green)">0</div></div>
 <div class="stat-card" id="stat-channel"><div class="stat-icon">&#9889;</div><div class="stat-label">Best Channel</div><div class="stat-value" id="d-c">--</div></div>
+<div class="stat-card"><div class="stat-icon">&#128200;</div><div class="stat-label">RF Load</div><div class="stat-value" id="d-load">--</div></div>
+<div class="stat-card"><div class="stat-icon">&#128338;</div><div class="stat-label">Uptime</div><div class="stat-value" id="d-up">--</div></div>
 </div>
 <div class="grid-2">
 <div class="card"><div class="card-header"><div class="card-title">Signal History</div></div><div class="card-body"><canvas id="chart" width="600" height="150"></canvas></div></div>
 <div class="card"><div class="card-header"><div class="card-title">Channel Distribution</div></div><div class="card-body"><div class="channels" id="ch-bars"></div></div></div>
 </div>
+<div class="grid-2">
+<div class="card"><div class="card-header"><div class="card-title">Session Stats</div></div><div class="card-body" id="session-stats"><div class="empty"><div class="empty-icon">&#128202;</div><p>Loading...</p></div></div></div>
+<div class="card"><div class="card-header"><div class="card-title">RF Health</div></div><div class="card-body" id="rf-health"><div class="empty"><div class="empty-icon">&#128225;</div><p>Start sniffer for RF data</p></div></div></div>
+</div>
 </div>
 <div id="wifi" class="tab">
-<div class="card"><div class="card-header"><div class="card-title">WiFi Networks<span class="count" id="w-count">0 found</span></div><div class="btn-group"><button class="btn btn-primary" onclick="scanWiFi()">Scan</button><button class="btn btn-danger" onclick="cmd('clear')">Clear</button></div></div><div class="card-body"><div class="table-container"><table><thead><tr><th class="col-sig">Sig</th><th class="col-ssid">Network</th><th class="col-bssid">BSSID</th><th class="col-ch">Ch</th><th class="col-rssi">RSSI</th><th class="col-sec">Security</th></tr></thead><tbody id="w-tbl"></tbody></table></div></div></div>
+<div class="card"><div class="card-header"><div class="card-title">WiFi Networks<span class="count" id="w-count">0 found</span></div><div class="btn-group"><button class="btn btn-primary" onclick="scanWiFi()">Scan</button><button class="btn btn-danger" onclick="cmd('clear')">Clear</button></div></div><div class="card-body"><div class="table-container"><table><thead><tr><th class="col-sig">Sig</th><th class="col-ssid">Network</th><th class="col-bssid">BSSID</th><th class="col-ch">Ch</th><th class="col-rssi">RSSI</th><th class="col-sec">Security</th><th style="width:36px">Gr</th></tr></thead><tbody id="w-tbl"></tbody></table></div></div></div>
+<div class="card" id="walk-card" style="display:none"><div class="card-header"><div class="card-title">Walk Test<span class="count" id="walk-target"></span></div><button class="btn btn-danger btn-sm" onclick="stopWalk()">Stop</button></div><div class="card-body"><div id="walk-stats"></div><canvas id="walk-chart" width="600" height="150"></canvas></div></div>
+<div class="card" id="hidden-card" style="display:none"><div class="card-header"><div class="card-title">Hidden Networks<span class="count" id="h-count">0</span></div></div><div class="card-body"><div class="table-container"><table><thead><tr><th>SSID</th><th class="col-ch">Ch</th><th class="col-rssi">RSSI</th></tr></thead><tbody id="h-tbl"></tbody></table></div></div></div>
 </div>
 <div id="ble" class="tab">
 <div class="card"><div class="card-header"><div class="card-title">Bluetooth Devices<span class="count" id="b-count">0 found</span></div><div class="btn-group"><button class="btn btn-primary" onclick="scanBLE()">Scan</button></div></div><div class="card-body"><div class="table-container"><table><thead><tr><th class="col-sig">Sig</th><th class="col-name">Name</th><th class="col-addr">Address</th><th class="col-rssi">RSSI</th><th class="col-type">Type</th></tr></thead><tbody id="b-tbl"></tbody></table></div></div></div>
@@ -194,6 +56,10 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;hei
 <div class="grid-2">
 <div class="card"><div class="card-header"><div class="card-title">Channel Usage</div><button class="btn btn-sm btn-primary" onclick="scanWiFi()">Refresh</button></div><div class="card-body"><div class="channels" id="analyzer-ch"></div></div></div>
 <div class="card"><div class="card-header"><div class="card-title">Recommendations</div></div><div class="card-body" id="ch-rec"><div class="empty"><div class="empty-icon">&#128202;</div><p>Run a scan to get recommendations</p></div></div></div>
+</div>
+<div class="grid-2">
+<div class="card"><div class="card-header"><div class="card-title">Channel Overlap</div></div><div class="card-body"><div class="channels" id="overlap-bars"></div></div></div>
+<div class="card" id="baseline-card"><div class="card-header"><div class="card-title">Environment Baseline</div><div class="btn-group"><button class="btn btn-sm btn-primary" onclick="cmd('take_snapshot')">Snapshot</button><button class="btn btn-sm" onclick="cmd('save_baseline')">Save Baseline</button></div></div><div class="card-body" id="baseline-body"><div class="empty"><div class="empty-icon">&#128202;</div><p>Take a snapshot and save as baseline</p></div></div></div>
 </div>
 </div>
 <div id="security" class="tab">
@@ -206,6 +72,10 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;hei
 <div class="card"><div class="card-header"><div class="card-title">Rogue APs</div></div><div class="card-body" id="rogue-list"><div class="empty"><div class="empty-icon">&#10003;</div><p>No rogue APs detected</p></div></div></div>
 <div class="card"><div class="card-header"><div class="card-title">Security Events</div></div><div class="card-body" id="s-alerts"><div class="empty"><div class="empty-icon">&#128737;</div><p>No security events</p></div></div></div>
 </div>
+<div class="card"><div class="card-header"><div class="card-title">Security Breakdown</div></div><div class="card-body" id="sec-breakdown"><div class="empty"><div class="empty-icon">&#128274;</div><p>Scan WiFi to see security breakdown</p></div></div></div>
+</div>
+<div id="monitor" class="tab">
+<div class="card"><div class="card-header"><div class="card-title">Client Monitor<span class="count" id="m-count">0 devices</span></div><div class="btn-group"><button class="btn btn-primary" id="mon-toggle" onclick="toggleMonitor()">Start</button><button class="btn btn-danger" onclick="cmd('clear_monitor')">Clear</button></div></div><div class="card-body"><div class="table-container"><table><thead><tr><th style="width:30px">T</th><th>Name</th><th class="col-bssid">MAC</th><th class="col-ch">Ch</th><th class="col-rssi">RSSI</th><th style="width:30px">P</th><th style="width:50px">Seen</th></tr></thead><tbody id="m-tbl"><tr><td colspan="7" class="empty">Start monitor to detect clients</td></tr></tbody></table></div></div></div>
 </div>
 <div id="settings" class="tab">
 <div class="card"><div class="card-header"><div class="card-title">Device Settings</div><button class="btn btn-primary" onclick="save()">Save</button></div><div class="card-body"><div class="form-grid">
@@ -225,46 +95,6 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;hei
 <div class="modal" id="ap-modal"><div class="modal-content"><div class="modal-header"><div class="modal-title">Network Details</div><button class="close-btn" onclick="closeModal()">&times;</button></div><div class="modal-body" id="ap-modal-body"></div><div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">Close</button></div></div></div>
 <div class="modal" id="ble-modal"><div class="modal-content"><div class="modal-header"><div class="modal-title">Device Details</div><button class="close-btn" onclick="closeModal()">&times;</button></div><div class="modal-body" id="ble-modal-body"></div><div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">Close</button></div></div></div>
 <div class="modal pkt-modal" id="pkt-modal"><div class="modal-content"><div class="modal-header"><div class="modal-title" style="display:flex;align-items:center;gap:8px">Packet Monitor - CH <button class="toggle-btn" onclick="changePktCh(-1)" style="padding:4px 10px;font-size:.82rem">&laquo;</button><span id="pkt-ch-num">--</span><button class="toggle-btn" onclick="changePktCh(1)" style="padding:4px 10px;font-size:.82rem">&raquo;</button></div><button class="close-btn" onclick="closePktModal()">&times;</button></div><div class="modal-body"><div class="pkt-stats"><div class="pkt-stat"><div class="pkt-stat-value" id="pkt-total">0</div><div class="pkt-stat-label">Total</div></div><div class="pkt-stat"><div class="pkt-stat-value" id="pkt-beacon">0</div><div class="pkt-stat-label">Beacons</div></div><div class="pkt-stat"><div class="pkt-stat-value" id="pkt-data">0</div><div class="pkt-stat-label">Data</div></div><div class="pkt-stat"><div class="pkt-stat-value" id="pkt-probe">0</div><div class="pkt-stat-label">Probes</div></div><div class="pkt-stat" id="pkt-deauth-stat"><div class="pkt-stat-value" id="pkt-deauth">0</div><div class="pkt-stat-label">Deauth</div></div><div class="pkt-stat"><div class="pkt-stat-value" id="pkt-pps">0</div><div class="pkt-stat-label">PPS</div></div><div class="pkt-stat"><div class="pkt-stat-value" id="pkt-peak">0</div><div class="pkt-stat-label">Peak</div></div></div><div class="toggle-group"><button class="toggle-btn" id="verb-btn" onclick="toggleVerbose()">Log</button><button class="toggle-btn" onclick="exportPktLog()">Export</button><span id="pkt-unique" style="color:var(--muted);font-size:.72rem;margin-left:auto">Devices: 0</span></div><div class="pkt-content"><div class="pkt-log" id="pkt-log"></div><canvas class="pkt-graph" id="pkt-graph" width="750" height="230"></canvas></div></div><div class="modal-footer"><button class="btn btn-primary" onclick="closePktModal()">Close</button></div></div></div>
-<script>
-let data={wifi:[],ble:[],events:[],rogue:[]},rssiHist=[],pktData={total:0,beacon:0,data:0,deauth:0,probe:0,pps:0,peak:0},pktHistory=[],pktVerbose=false,pktInterval=null,monitoringCh=0,pktLoading=true,pktDevices=new Set(),pktStartTime=0;
-let isDark=localStorage.getItem('theme')!=='light';
-function applyTheme(){document.documentElement.setAttribute('data-theme',isDark?'dark':'light');document.getElementById('theme-btn').innerHTML=isDark?'&#9790;':'&#9728;';localStorage.setItem('theme',isDark?'dark':'light')}
-function toggleTheme(){isDark=!isDark;applyTheme()}
-applyTheme();
-function showTab(t,b){document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));document.getElementById(t).classList.add('active');b.classList.add('active')}
-function toast(m,t='info'){const d=document.createElement('div');d.className='toast '+t;d.textContent=m;document.body.appendChild(d);setTimeout(()=>d.remove(),3000)}
-function initCH(){['ch-bars','analyzer-ch'].forEach(id=>{const g=document.getElementById(id);if(!g)return;g.innerHTML='';for(let i=1;i<=13;i++){const b=document.createElement('div');b.className='ch-bar';b.id=id+'-'+i;b.style.height='4px';b.onclick=()=>showPktMonitor(i);g.appendChild(b)}})}
-function getChartColors(){return isDark?{bg:'#101014',grid:'#2a2a36',label:'#7a7a8c',line:'#7c6aef',fill1:'rgba(124,106,239,0.15)',fill2:'rgba(124,106,239,0)'}:{bg:'#f4f4f8',grid:'#e4e4ec',label:'#6b6b80',line:'#6366f1',fill1:'rgba(99,102,241,0.12)',fill2:'rgba(99,102,241,0)'}}
-function drawChart(){const c=document.getElementById('chart'),x=c.getContext('2d'),w=c.width,h=c.height,cl=getChartColors();x.fillStyle=cl.bg;x.fillRect(0,0,w,h);if(rssiHist.length<2)return;x.strokeStyle=cl.grid;for(let i=0;i<5;i++){const y=h-25-i*(h-35)/4;x.beginPath();x.moveTo(40,y);x.lineTo(w,y);x.stroke()}x.fillStyle=cl.label;x.font='10px monospace';x.textAlign='right';for(let i=0;i<5;i++)x.fillText(-100+i*20+'',35,h-25-i*(h-35)/4);x.beginPath();x.strokeStyle=cl.line;x.lineWidth=2;const step=(w-50)/(rssiHist.length-1);rssiHist.forEach((v,i)=>{const y=h-25-((v+100)/70)*(h-35);if(i===0)x.moveTo(45,y);else x.lineTo(45+i*step,y)});x.stroke();const g=x.createLinearGradient(0,0,0,h);g.addColorStop(0,cl.fill1);g.addColorStop(1,cl.fill2);x.fillStyle=g;x.lineTo(45+(rssiHist.length-1)*step,h-25);x.lineTo(45,h-25);x.fill()}
-function sigClass(r){return r>-60?'good':r>-75?'fair':'poor'}
-function sigBars(c){return'<div class="signal '+c+'"><div></div><div></div><div></div><div></div></div>'}
-function calcChLoad(w){const cl={};for(let i=1;i<=13;i++)cl[i]=0;w.forEach(ap=>{if(ap.ch>=1&&ap.ch<=13)cl[ap.ch]++});return cl}
-function calcBestCh(cl){let bc=1,ml=999;for(let ch=1;ch<=13;ch++)if(cl[ch]<ml){ml=cl[ch];bc=ch}if(cl[1]<=cl[6]&&cl[1]<=cl[11])bc=1;else if(cl[6]<=cl[1]&&cl[6]<=cl[11])bc=6;else if(cl[11]<=cl[1]&&cl[11]<=cl[6])bc=11;return bc}
-function update(){fetch('/api/data').then(r=>r.json()).then(d=>{data=d;const w=d.wifi||[],b=d.ble||[],e=d.events||[];document.getElementById('d-w').textContent=w.length;document.getElementById('d-b').textContent=b.length;document.getElementById('nav-w').textContent=w.length;document.getElementById('nav-b').textContent=b.length;const a=e.length;document.getElementById('d-a').textContent=a;document.getElementById('nav-s').textContent=a;document.getElementById('d-a').style.color=a>0?'var(--red)':'var(--green)';const sa=document.getElementById('stat-alerts');a>0?sa.classList.add('alert'):sa.classList.remove('alert');const cl=calcChLoad(w);const bc=calcBestCh(cl);document.getElementById('d-c').textContent='CH'+bc;if(w.length>0){const avg=w.reduce((a,b)=>a+b.rssi,0)/w.length;rssiHist.push(avg);if(rssiHist.length>40)rssiHist.shift()}drawChart();updateCH(cl,bc);updateWiFi(w);updateBLE(b);updateAlerts(e);updateRogue(d.rogue||[]);updateRec(cl,bc);document.getElementById('status-text').textContent='Connected';document.getElementById('status-wrap').classList.remove('error')}).catch(e=>{console.error(e);document.getElementById('status-text').textContent='Error';document.getElementById('status-wrap').classList.add('error')})}
-function updateCH(cl,bc){const mx=Math.max(...Object.values(cl),1);for(let i=1;i<=13;i++){const v=cl[i]||0,h=Math.max(4,(v/mx)*100);['ch-bars','analyzer-ch'].forEach(id=>{const b=document.getElementById(id+'-'+i);if(b){b.style.height=h+'px';b.className='ch-bar'+(v?' active':'')+(i===bc?' best':'')+(v>8?' hot':'')}})}}
-function updateWiFi(w){document.getElementById('w-count').textContent=w.length+' found';const t=document.getElementById('w-tbl');if(!w.length){t.innerHTML='<tr><td colspan="6" class="empty">No networks found</td></tr>';return}t.innerHTML=w.map((ap,i)=>{const sc=sigClass(ap.rssi),sec=ap.sec===7?'open':ap.sec<=4?'wep':'secure',st=ap.sec===7?'Open':ap.sec<=4?'WEP':'WPA2',rc=ap.rssi>-60?'var(--green)':ap.rssi>-80?'var(--orange)':'var(--red)';return'<tr onclick="showAP('+i+')"><td class="col-sig">'+sigBars(sc)+'</td><td class="col-ssid"><b>'+(ap.ssid||'<i style="color:var(--muted)">Hidden</i>')+'</b></td><td class="col-bssid mono">'+ap.bssid+'</td><td class="col-ch">'+ap.ch+'</td><td class="col-rssi" style="color:'+rc+'">'+ap.rssi+'</td><td class="col-sec"><span class="badge badge-'+sec+'">'+st+'</span></td></tr>'}).join('')}
-function updateBLE(b){document.getElementById('b-count').textContent=b.length+' found';const t=document.getElementById('b-tbl');if(!b.length){t.innerHTML='<tr><td colspan="5" class="empty">No devices found</td></tr>';return}t.innerHTML=b.map((d,i)=>{const sc=sigClass(d.rssi),tp=d.type===1?'iBeacon':d.type===2?'Eddystone':'Generic',rc=d.rssi>-70?'var(--green)':'var(--orange)';return'<tr onclick="showBLE('+i+')"><td class="col-sig">'+sigBars(sc)+'</td><td class="col-name"><b>'+(d.name||'<i style="color:var(--muted)">Unknown</i>')+'</b></td><td class="col-addr mono">'+d.addr+'</td><td class="col-rssi" style="color:'+rc+'">'+d.rssi+'</td><td class="col-type">'+tp+'</td></tr>'}).join('')}
-function showAP(i){const ap=data.wifi[i];if(!ap)return;const m=document.getElementById('ap-modal'),b=document.getElementById('ap-modal-body');const sec=ap.sec===7?'Open':ap.sec<=4?'WEP':'WPA2',sc=ap.sec===7?'var(--red)':ap.sec<=4?'var(--orange)':'var(--green)';b.innerHTML='<div class="detail-row"><span class="detail-label">SSID</span><span class="detail-value">'+(ap.ssid||'Hidden')+'</span></div><div class="detail-row"><span class="detail-label">BSSID</span><span class="detail-value mono">'+ap.bssid+'</span></div><div class="detail-row"><span class="detail-label">Channel</span><span class="detail-value">'+ap.ch+'</span></div><div class="detail-row"><span class="detail-label">RSSI</span><span class="detail-value">'+ap.rssi+' dBm</span></div><div class="detail-row"><span class="detail-label">Security</span><span class="detail-value" style="color:'+sc+'">'+sec+'</span></div>';m.classList.add('active')}
-function showBLE(i){const d=data.ble[i];if(!d)return;const m=document.getElementById('ble-modal'),b=document.getElementById('ble-modal-body');b.innerHTML='<div class="detail-row"><span class="detail-label">Name</span><span class="detail-value">'+(d.name||'Unknown')+'</span></div><div class="detail-row"><span class="detail-label">Address</span><span class="detail-value mono">'+d.addr+'</span></div><div class="detail-row"><span class="detail-label">RSSI</span><span class="detail-value">'+d.rssi+' dBm</span></div>';m.classList.add('active')}
-function closeModal(){document.getElementById('ap-modal').classList.remove('active');document.getElementById('ble-modal').classList.remove('active');closePktModal()}
-function showPktMonitor(ch){monitoringCh=ch;pktVerbose=false;pktDevices=new Set();pktStartTime=Date.now();document.getElementById('pkt-ch-num').textContent=ch;document.getElementById('pkt-modal').classList.add('active');document.getElementById('pkt-log').innerHTML='';document.getElementById('pkt-log').classList.remove('active');document.getElementById('pkt-graph').style.display='';document.getElementById('verb-btn').textContent='Log';document.getElementById('verb-btn').classList.remove('active');if(pktInterval){clearInterval(pktInterval);pktInterval=null}pktHistory=[];pktLoading=true;['pkt-total','pkt-beacon','pkt-data','pkt-probe','pkt-deauth','pkt-pps','pkt-peak'].forEach(id=>{document.getElementById(id).textContent='\u2026'});document.getElementById('pkt-unique').textContent='Devices: 0';drawPktGraph();fetch('/api/action?type=start_sniffer&channel='+ch,{method:'POST'}).then(()=>{pktInterval=setInterval(fetchPktData,500)})}
-function changePktCh(dir){var ch=monitoringCh+dir;if(ch<1)ch=13;if(ch>13)ch=1;showPktMonitor(ch)}
-function closePktModal(){document.getElementById('pkt-modal').classList.remove('active');if(pktInterval){clearInterval(pktInterval);pktInterval=null}pktHistory=[];fetch('/api/action?type=stop_sniffer',{method:'POST'})}
-function fetchPktData(){fetch('/api/packets').then(r=>r.json()).then(d=>{pktData=d;pktLoading=false;updatePktDisplay();if(!pktVerbose)drawPktGraph();if(pktVerbose&&d.packets)updatePktLog(d.packets);pktHistory=d.ppsHistory||[]}).catch(e=>console.error(e))}
-function updatePktDisplay(){document.getElementById('pkt-total').textContent=pktData.total;document.getElementById('pkt-beacon').textContent=pktData.beacon;document.getElementById('pkt-data').textContent=pktData.data;document.getElementById('pkt-probe').textContent=pktData.probe||0;document.getElementById('pkt-deauth').textContent=pktData.deauth;document.getElementById('pkt-pps').textContent=pktData.pps;document.getElementById('pkt-peak').textContent=pktData.peak;const ds=document.getElementById('pkt-deauth-stat');pktData.deauth>0?ds.classList.add('alert'):ds.classList.remove('alert');if(pktData.packets)pktData.packets.forEach(p=>{if(p.bssid&&p.bssid!=='00:00:00:00:00:00')pktDevices.add(p.bssid)});document.getElementById('pkt-unique').textContent='Devices: '+pktDevices.size}
-function drawPktGraph(){const c=document.getElementById('pkt-graph'),x=c.getContext('2d'),w=c.width,h=c.height,cl=getChartColors();x.fillStyle=cl.bg;x.fillRect(0,0,w,h);let hist=pktHistory.slice();const fst=hist.findIndex(v=>v>0);if(fst>0)hist=hist.slice(fst);if(hist.length<2){x.fillStyle=cl.label;x.font='14px -apple-system,sans-serif';x.textAlign='center';x.fillText(pktLoading?'Loading...':'No data',w/2,h/2);return}const max=Math.max(...hist,10);x.strokeStyle=cl.grid;for(let i=0;i<5;i++){const y=h-30-i*(h-50)/4;x.beginPath();x.moveTo(50,y);x.lineTo(w,y);x.stroke()}x.fillStyle=cl.label;x.font='10px monospace';x.textAlign='right';for(let i=0;i<5;i++)x.fillText(Math.round(max*i/4)+'',40,h-30-i*(h-50)/4);x.beginPath();x.strokeStyle=cl.line;x.lineWidth=2;const step=(w-70)/(hist.length>1?hist.length-1:1);hist.forEach((v,i)=>{const y=h-30-(v/max)*(h-50);if(i===0)x.moveTo(50,y);else x.lineTo(50+i*step,y)});x.stroke()}
-function updatePktLog(packets){const log=document.getElementById('pkt-log');packets.filter(p=>p.ch===monitoringCh).forEach(p=>{const id=p.ts+'_'+p.type+'_'+p.bssid;if(!document.getElementById('pkt-'+id)){const e=document.createElement('div');e.id='pkt-'+id;e.className='pkt-entry';const rc=p.rssi>=-60?'good':p.rssi>=-80?'mid':'weak';const tc=p.type==='DEAUTH'?'deauth':p.type==='BEACON'?'beacon':p.type==='PROBE'?'probe':'data';const secs=Math.floor(p.ts/1000);const mm=Math.floor(secs/60);const ss=secs%60;const ts=(mm>0?mm+'m':'')+ss+'s';const ssid=p.ssid&&p.ssid.length>0?p.ssid:'\u2014';e.innerHTML='<span class="pkt-time">'+ts+'</span><span class="pkt-type '+tc+'">'+p.type+'</span><span class="pkt-ssid" title="'+ssid+'">'+ssid+'</span><span class="pkt-bssid">'+p.bssid+'</span><span class="pkt-ch">CH'+p.ch+'</span><span class="pkt-rssi '+rc+'">'+p.rssi+'dBm</span>';log.appendChild(e);log.scrollTop=log.scrollHeight;if(log.children.length>100)log.removeChild(log.firstChild)}})}
-function toggleVerbose(){pktVerbose=!pktVerbose;const btn=document.getElementById('verb-btn'),log=document.getElementById('pkt-log'),graph=document.getElementById('pkt-graph');btn.textContent=pktVerbose?'Graph':'Log';btn.classList.toggle('active',pktVerbose);log.classList.toggle('active',pktVerbose);graph.style.display=pktVerbose?'none':''}
-function exportPktLog(){fetch('/api/packets').then(r=>r.json()).then(d=>{let csv='Time,Type,SSID,BSSID,Channel,RSSI\n';(d.packets||[]).forEach(p=>{const secs=Math.floor(p.ts/1000);const mm=Math.floor(secs/60);const ss=secs%60;const ts=(mm>0?mm+'m':'')+ss+'s';csv+=ts+','+p.type+',"'+(p.ssid||'')+'",'+p.bssid+','+p.ch+','+p.rssi+'\n'});const blob=new Blob([csv],{type:'text/csv'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='packets.csv';a.click();URL.revokeObjectURL(url);toast('Exported '+(d.packets||[]).length+' packets (all channels)','success')}).catch(()=>toast('Export failed','error'))}
-function updateAlerts(e){const c=document.getElementById('s-alerts');if(!e||!e.length){c.innerHTML='<div class="empty"><div class="empty-icon">&#128737;</div><p>No security events</p></div>';document.getElementById('s-d').textContent='0';document.getElementById('s-d').style.color='var(--green)';document.getElementById('s-r').textContent='0';document.getElementById('s-r').style.color='var(--green)';return}let nd=0,nr=0;const h=e.slice().reverse().map(ev=>{let cls='info',ic='&#8505;';if(ev.type===0){cls='critical';ic='&#9888;';nd++}else if(ev.type===1){cls='warning';ic='&#9888;';nr++}return'<div class="alert-item '+cls+'"><div class="alert-icon">'+ic+'</div><div class="alert-content"><div class="alert-title">'+(ev.type===0?'Deauth Attack':ev.type===1?'Rogue AP':'Tracker')+'</div><div class="alert-meta">'+ev.msg+'</div></div></div>'}).join('');c.innerHTML=h;document.getElementById('s-d').textContent=nd;document.getElementById('s-d').style.color=nd?'var(--red)':'var(--green)';document.getElementById('s-r').textContent=nr;document.getElementById('s-r').style.color=nr?'var(--orange)':'var(--green)'}
-function updateRogue(r){const c=document.getElementById('rogue-list');if(!r||!r.length){c.innerHTML='<div class="empty"><div class="empty-icon">&#10003;</div><p>No rogue APs detected</p></div>';return}c.innerHTML=r.map(ap=>'<div class="alert-item warning"><div class="alert-icon">&#9888;</div><div class="alert-content"><div class="alert-title">Rogue: '+ap.ssid+'</div><div class="alert-meta mono">'+ap.bssid1+'</div></div></div>').join('')}
-function updateRec(cl,bc){const c=document.getElementById('ch-rec');if(!cl||Object.values(cl).every(v=>v===0)){c.innerHTML='<div class="empty"><div class="empty-icon">&#128202;</div><p>Run a scan to get recommendations</p></div>';return}const rec=[1,6,11].map(ch=>({ch,l:cl[ch]||0})).sort((a,b)=>a.l-b.l);c.innerHTML=rec.map((r,i)=>'<div class="rec-card '+(i===0?'best':'')+'"><div class="rec-rank">'+(i+1)+'</div><div class="rec-info"><div class="rec-title">Channel '+r.ch+'</div><div class="rec-sub">'+r.l+' networks</div></div>'+(i===0?'<span style="color:var(--green);font-weight:600">Best</span>':'')+'</div>').join('')}
-function scanWiFi(){toast('Scanning WiFi...');cmd('scan_wifi')}
-function scanBLE(){toast('Scanning BLE...');cmd('scan_ble')}
-function cmd(t,p){fetch('/api/action?type='+t+(p||''),{method:'POST'}).then(r=>r.text()).then(m=>{toast(m,'success');update()}).catch(()=>toast('Command failed','error'))}
-function save(){const fd=new FormData();fd.append('scanSpeed',document.getElementById('s-speed').value);fd.append('rssiThreshold',document.getElementById('s-rssi').value);fd.append('rgbBrightness',document.getElementById('s-rgb').value);fd.append('deauthThreshold',document.getElementById('s-deauth').value);fd.append('screenTimeout',document.getElementById('s-to').value);fd.append('powerMode',document.getElementById('s-pwr').value);fd.append('apSSID',document.getElementById('s-ap-ssid').value);fd.append('apPassword',document.getElementById('s-ap-pass').value);toast('Saving...');fetch('/api/settings',{method:'POST',body:fd}).then(()=>toast('Settings saved!','success')).catch(()=>toast('Save failed','error'))}
-function load(){fetch('/api/settings').then(r=>r.json()).then(s=>{document.getElementById('s-speed').value=s.scanSpeed;document.getElementById('s-rssi').value=s.rssiThreshold;document.getElementById('s-rssi').nextElementSibling.textContent=s.rssiThreshold+'dBm';document.getElementById('s-rgb').value=s.rgbBrightness;document.getElementById('s-rgb').nextElementSibling.textContent=s.rgbBrightness+'%';document.getElementById('s-deauth').value=s.deauthThreshold;document.getElementById('s-to').value=s.screenTimeout;document.getElementById('s-pwr').value=s.powerMode;document.getElementById('s-ap-ssid').value=s.apSSID||'';document.getElementById('s-ap-pass').value=s.apPassword||''}).catch(()=>toast('Failed to load settings','error'))}
-initCH();load();update();setInterval(update,2000);
-</script>
+<script src="/app.js"></script>
 </body>
 </html>
