@@ -2,7 +2,7 @@
 
 WiFi and BLE scanner, security monitor, and RF diagnostics tool for ESP32.
 
-![Version](https://img.shields.io/badge/version-v2.0.1-blue)
+![Version](https://img.shields.io/badge/version-v2.0.2-blue)
 ![Platform](https://img.shields.io/badge/platform-ESP32%2C%20ESP32--C3%2C%20ESP32--S2-green)
 
 ## Features
@@ -45,7 +45,7 @@ The device has a hierarchical menu system with 11 main items and 4 submenus, all
 
 **RF Health** — overall environment health score showing RF load percentage, quality rating (Good/OK/Busy/Avoid), and a text insight (e.g., "Heavy Traffic", "Very Clean", "Possible Attack"). Long press toggles a full-screen RSSI graph tracking average signal strength over 60 samples.
 
-**Live Monitor** — real-time packet capture display showing packets per second, smoothed PPS, average RSSI, and a breakdown of beacon, data, and deauth frame counts. Useful for diagnosing interference and attacks.
+**Live Monitor** — real-time packet capture display showing packets per second, smoothed PPS, average RSSI, and a breakdown of beacon, data, probe, and deauth frame counts. Useful for diagnosing interference and attacks.
 
 **Channel Analyzer** — scans all 13 channels and displays a bar chart of traffic per channel. Highlights the best channel (lowest traffic) and marks congested channels. Shows channel number labels and overlap indicators.
 
@@ -204,6 +204,8 @@ After flashing new firmware, re-flash the SPIFFS image if it got erased — they
 **Client monitor not detecting devices** — make sure no WiFi scan is running simultaneously. The monitor uses promiscuous mode which is paused during scans.
 
 ## Version History
+
+**v2.0.2** (2026-02-14) — Fixed packet counting: added explicit promiscuous filter for data frames (ESP32-C3 was not delivering data packets), fixed double-counting in channel analyzer (sniffer and handler both incremented per-channel arrays), fixed `channelLoad()` double-weighting beacons, added per-channel data and probe tracking, and reset all counters between channel hops. Live Monitor now shows probe packets separately (B/D/P/X).
 
 **v2.0.1** (2026-02-14) — Fixed web UI not loading scan data (float/int format mismatch in JSON serialization). Fixed client monitor dying permanently when a background WiFi scan failed (scan failure left promiscuous mode disabled). Increased API JSON buffer to 8KB. Auto-scan now pauses while client monitor is active.
 
