@@ -181,33 +181,100 @@ When sleeping: display off, LED off, WiFi off, BLE off.
 
 ## Build & Flash
 
-This project has **two separate parts** that must both be flashed:
+This project has **two parts** that must both be flashed to the ESP32:
 
-1. **Firmware** — the main `.ino` sketch (compiled code)
-2. **SPIFFS data** — the `data/` folder containing the web UI (`index.html`, `app.js`, `style.css`) and vendor databases (`oui.bin`, `ble.bin`)
-
-Both live in independent flash partitions and can be flashed separately.
+| Part | Contents | Flash Offset |
+|------|----------|--------------|
+| **Firmware** | Compiled sketch code | 0x0 - 0x10000 (bootloader + app) |
+| **SPIFFS** | Web UI, vendor databases | 0x310000 (1MB partition) |
 
 ### Prerequisites
 
 - ESP32 board with USB connection (ESP32-C3, ESP32, or ESP32-S2)
-- USB driver installed for your board (CP2102/CH340/JTAG depending on board)
-- Identify your serial port: `COM3` on Windows, `/dev/ttyUSB0` or `/dev/ttyACM0` on Linux, `/dev/cu.usbserial-*` on macOS
+- USB driver installed (CP2102/CH340/JTAG depending on board)
+- Your serial port: `COM3` on Windows, `/dev/ttyUSB0` or `/dev/ttyACM0` on Linux, `/dev/cu.usbserial-*` on macOS
 
-### Partition Scheme
-
-This project requires the **Huge APP** partition scheme (3MB firmware / 1MB SPIFFS). The default partition is too small.
-
-| Partition | Offset | Size |
-|-----------|--------|------|
-| Firmware | 0x10000 | 3MB (3,145,728 bytes) |
-| SPIFFS | 0x310000 | 1MB (917,504 bytes) |
+> This project requires the **Huge APP** partition scheme (3MB firmware / 1MB SPIFFS).
 
 ---
 
-### Option 1: Arduino CLI (Recommended)
+### Option 1: Pre-built Binaries (Recommended)
 
-The fastest method — everything from the command line.
+The easiest way to get started. No compiling needed — just download and flash.
+
+#### Install esptool
+
+```bash
+pip install esptool
+```
+
+#### Download release binaries
+
+Download all 5 files from the [latest release](../../releases/latest) or use the `release/` folder in the repo:
+
+| File | Description | Flash Offset |
+|------|-------------|--------------|
+| `bootloader.bin` | ESP32 bootloader | 0x0 |
+| `partitions.bin` | Partition table (Huge APP) | 0x8000 |
+| `boot_app0.bin` | Boot app selector | 0xE000 |
+| `firmware.bin` | Main application firmware | 0x10000 |
+| `spiffs.bin` | SPIFFS image (web UI + vendor DBs) | 0x310000 |
+
+#### Flash everything at once
+
+```bash
+esptool --chip esp32c3 --port COM3 --baud 921600 write_flash \
+  0x0      bootloader.bin \
+  0x8000   partitions.bin \
+  0xe000   boot_app0.bin \
+  0x10000  firmware.bin \
+  0x310000 spiffs.bin
+```
+
+> Replace `COM3` with your port. Replace `esp32c3` with `esp32` or `esp32s2` if using a different board.
+
+#### Flash firmware only (keep existing SPIFFS)
+
+```bash
+esptool --chip esp32c3 --port COM3 --baud 921600 write_flash \
+  0x0      bootloader.bin \
+  0x8000   partitions.bin \
+  0xe000   boot_app0.bin \
+  0x10000  firmware.bin
+```
+
+#### Flash SPIFFS only (keep existing firmware)
+
+```bash
+esptool --chip esp32c3 --port COM3 --baud 921600 write_flash 0x310000 spiffs.bin
+```
+
+---
+
+### Option 2: ESP Flasher GUI (Easiest for beginners)
+
+No command line needed. Use [ESP Flash Download Tool](https://www.espressif.com/en/support/download/other-tools) (Windows) or [NodeMCU PyFlasher](https://github.com/marcelstoer/nodemcu-pyflasher) (cross-platform).
+
+1. Download the release binaries from the `release/` folder or [latest release](../../releases/latest)
+2. Open the flasher tool and select your serial port
+3. Set baud rate to **921600**
+4. Add each binary at its offset:
+
+| File | Offset |
+|------|--------|
+| `bootloader.bin` | 0x0 |
+| `partitions.bin` | 0x8000 |
+| `boot_app0.bin` | 0xE000 |
+| `firmware.bin` | 0x10000 |
+| `spiffs.bin` | 0x310000 |
+
+5. Click **Start** / **Flash**
+
+---
+
+### Option 3: Arduino CLI (For developers)
+
+Compile from source and upload directly.
 
 #### 1. Install tools and dependencies
 
@@ -219,21 +286,19 @@ arduino-cli core install esp32:esp32
 arduino-cli lib install U8g2 "Adafruit NeoPixel"
 ```
 
-#### 2. Compile the firmware
+#### 2. Compile and upload firmware
 
 ```bash
+# Compile
 arduino-cli compile --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app .
+
+# Upload
+arduino-cli upload -p COM3 --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app .
 ```
 
 > For other boards, replace `esp32c3` with `esp32` or `esp32s2`.
 
-#### 3. Upload the firmware
-
-```bash
-arduino-cli upload -p COM3 --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app .
-```
-
-#### 4. Build and flash SPIFFS
+#### 3. Build and flash SPIFFS
 
 ```bash
 # Build the SPIFFS image from the data/ folder
@@ -243,16 +308,28 @@ mkspiffs -c data -b 4096 -p 256 -s 917504 spiffs.bin
 esptool --chip esp32c3 --port COM3 --baud 921600 write_flash 0x310000 spiffs.bin
 ```
 
-> **Tool paths** — if `mkspiffs` or `esptool` aren't in your PATH, find them in your Arduino installation:
+> **Tool paths** — if `mkspiffs` or `esptool` aren't in your PATH, find them here:
 >
 > | Tool | Windows | Linux/macOS |
 > |------|---------|-------------|
 > | mkspiffs | `%LOCALAPPDATA%\Arduino15\packages\esp32\tools\mkspiffs\0.2.3\mkspiffs.exe` | `~/.arduino15/packages/esp32/tools/mkspiffs/0.2.3/mkspiffs` |
 > | esptool | `%LOCALAPPDATA%\Arduino15\packages\esp32\tools\esptool_py\5.1.0\esptool.exe` | `~/.arduino15/packages/esp32/tools/esptool_py/5.1.0/esptool` |
 
+#### 4. Update release binaries (optional)
+
+After compiling, copy the new binaries to the `release/` folder:
+
+```bash
+cp build/esp32.esp32.esp32c3/esp32Util.ino.bootloader.bin release/bootloader.bin
+cp build/esp32.esp32.esp32c3/esp32Util.ino.partitions.bin release/partitions.bin
+cp build/esp32.esp32.esp32c3/boot_app0.bin                release/boot_app0.bin
+cp build/esp32.esp32.esp32c3/esp32Util.ino.bin             release/firmware.bin
+mkspiffs -c data -b 4096 -p 256 -s 917504                 release/spiffs.bin
+```
+
 ---
 
-### Option 2: Arduino IDE
+### Option 4: Arduino IDE
 
 #### 1. Setup
 
@@ -273,7 +350,7 @@ Set these under the **Tools** menu:
 | Board | ESP32C3 Dev Module (or your board) |
 | Partition Scheme | Huge APP (3MB No OTA/1MB SPIFFS) |
 | Upload Speed | 921600 |
-| Port | Your COM port |
+| Port | Your serial port |
 
 #### 3. Upload firmware
 
@@ -290,62 +367,13 @@ Install the [Arduino ESP32 SPIFFS upload plugin](https://github.com/me-no-dev/ar
 
 This uploads the entire `data/` folder to SPIFFS automatically.
 
-> **Note**: If the plugin is not available for your IDE version, use the CLI method (Option 1, step 4) or esptool directly (Option 3).
-
----
-
-### Option 3: Pre-built Binaries with esptool
-
-If you have pre-built `.bin` files (from a release or from someone else's compile), you can flash everything directly with `esptool` without compiling.
-
-#### Flash firmware only
-
-```bash
-esptool --chip esp32c3 --port COM3 --baud 921600 write_flash \
-  0x0     build/esp32Util.ino.bootloader.bin \
-  0x8000  build/esp32Util.ino.partitions.bin \
-  0xe000  boot_app0.bin \
-  0x10000 build/esp32Util.ino.bin
-```
-
-#### Flash SPIFFS only
-
-```bash
-esptool --chip esp32c3 --port COM3 --baud 921600 write_flash 0x310000 spiffs.bin
-```
-
-#### Flash everything at once
-
-```bash
-esptool --chip esp32c3 --port COM3 --baud 921600 write_flash \
-  0x0     build/esp32Util.ino.bootloader.bin \
-  0x8000  build/esp32Util.ino.partitions.bin \
-  0xe000  boot_app0.bin \
-  0x10000 build/esp32Util.ino.bin \
-  0x310000 spiffs.bin
-```
-
-> **Where to find build files**: After compiling with Arduino CLI, the build output is in the `build/` folder. The `boot_app0.bin` file is at:
-> `%LOCALAPPDATA%\Arduino15\packages\esp32\hardware\esp32\<version>\tools\partitions\boot_app0.bin`
-
----
-
-### Option 4: ESP Flasher GUI (Easiest for beginners)
-
-[NodeMCU PyFlasher](https://github.com/marcelstoer/nodemcu-pyflasher) or [ESP Flash Download Tool](https://www.espressif.com/en/support/download/other-tools) (Windows only) provide a graphical interface.
-
-1. Compile the project first using Arduino CLI or Arduino IDE
-2. Open the flasher tool
-3. Set the serial port and baud rate (921600)
-4. Add the firmware binary at offset `0x10000`
-5. Add the SPIFFS image at offset `0x310000`
-6. Click Flash
+> If the plugin isn't available for your IDE version, flash SPIFFS using esptool (see Option 1 or 3).
 
 ---
 
 ### Verifying the flash
 
-After flashing both firmware and SPIFFS, the device should boot and show the menu on the OLED. Open a serial monitor at **115200 baud** to check boot logs:
+After flashing, the device should boot and show the menu on the OLED. Open a serial monitor at **115200 baud** to check:
 
 ```
 [BOOT] Mounting SPIFFS
@@ -356,12 +384,13 @@ After flashing both firmware and SPIFFS, the device should boot and show the men
 [BOOT] OK
 ```
 
-If you see `oui.bin not found` or `ble.bin not found`, the SPIFFS image wasn't flashed or was overwritten. Re-flash the SPIFFS partition.
+If you see `oui.bin not found` or `ble.bin not found`, re-flash the SPIFFS partition.
 
 ### Quick reference
 
 | What | Command |
 |------|---------|
+| Flash all (pre-built) | `esptool --chip esp32c3 --port COM3 --baud 921600 write_flash 0x0 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin 0x10000 firmware.bin 0x310000 spiffs.bin` |
 | Compile | `arduino-cli compile --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app .` |
 | Upload firmware | `arduino-cli upload -p COM3 --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app .` |
 | Build SPIFFS | `mkspiffs -c data -b 4096 -p 256 -s 917504 spiffs.bin` |
