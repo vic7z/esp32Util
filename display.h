@@ -12,7 +12,7 @@ void drawPatternBar(uint8_t x, uint8_t y, uint8_t width, uint8_t height, uint8_t
 
 void drawHeader(const char* title);
 void drawFooter(const char* left, const char* right = nullptr);
-void drawFooterPill(uint8_t x, const char* label);
+void drawFooterPill(uint8_t x, const char* label, bool filled = false);
 void drawScrollDots(uint8_t scroll, uint16_t count, uint8_t visible);
 
 #endif // DISPLAY_H

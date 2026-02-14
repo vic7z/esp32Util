@@ -69,30 +69,49 @@ void drawHeader(const char* title) {
   oled.setDrawColor(0);
   oled.drawStr(x, 9, title);
   oled.setDrawColor(1);
+  // Shadow line for depth
+  for (uint8_t sx = 0; sx < 128; sx += 2) {
+    oled.drawPixel(sx, 13);
+  }
 }
 
-void drawFooterPill(uint8_t x, const char* label) {
+void drawFooterPill(uint8_t x, const char* label, bool filled) {
   oled.setFont(u8g2_font_4x6_tf);
   uint8_t w = oled.getStrWidth(label);
-  oled.drawRFrame(x, 55, w + 6, 9, 2);
-  oled.drawStr(x + 3, 62, label);
+  if (filled) {
+    oled.drawRBox(x, 55, w + 6, 9, 2);
+    oled.setDrawColor(0);
+    oled.drawStr(x + 3, 62, label);
+    oled.setDrawColor(1);
+  } else {
+    oled.drawRFrame(x, 55, w + 6, 9, 2);
+    oled.drawStr(x + 3, 62, label);
+  }
 }
 
 void drawFooter(const char* left, const char* right) {
   oled.drawLine(0, 53, 127, 53);
   if (left && strlen(left) > 0) {
-    drawFooterPill(1, left);
+    drawFooterPill(1, left, false);
   }
   if (right && strlen(right) > 0) {
     oled.setFont(u8g2_font_4x6_tf);
     uint8_t w = oled.getStrWidth(right);
-    drawFooterPill(127 - w - 7, right);
+    drawFooterPill(127 - w - 7, right, true);
   }
 }
 
 void drawScrollDots(uint8_t scroll, uint16_t count, uint8_t visible) {
-  if (scroll > 0) oled.drawDisc(124, 16, 1);
-  if (scroll + visible < count) oled.drawDisc(124, 51, 1);
+  if (count <= visible) return;
+  // Draw scrollbar track
+  const uint8_t trackX = 126, trackY = 15, trackH = 37;
+  for (uint8_t y = trackY; y < trackY + trackH; y += 2) {
+    oled.drawPixel(trackX, y);
+  }
+  // Draw scrollbar thumb
+  uint8_t thumbH = max((uint8_t)4, (uint8_t)(trackH * visible / count));
+  uint8_t thumbY = trackY + (uint16_t)scroll * (trackH - thumbH) / (count - visible);
+  oled.drawBox(trackX - 1, thumbY, 3, thumbH);
 }
 
 // ── Pattern bars ──────────────────────────────────────────────────

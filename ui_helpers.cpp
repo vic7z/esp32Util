@@ -114,11 +114,19 @@ void drawRSSIGraph(int8_t* history, uint8_t historyIndex, int8_t minRSSI, int8_t
     oled.setCursor(0, 55);
     oled.print(subtitle);
 
-    oled.drawStr(60, 64, "SHORT=Stats");
+    drawFooter("STATS", nullptr);
   } while (oled.nextPage());
 }
 
 void drawScrollbar(uint8_t scroll, uint16_t count, uint8_t visible) {
-  if (scroll > 0) oled.drawStr(122, 18, "^");
-  if (scroll + visible < count) oled.drawStr(122, 61, "v");
+  if (count <= visible) return;
+  // Scrollbar track
+  const uint8_t trackX = 126, trackY = 15, trackH = 37;
+  for (uint8_t y = trackY; y < trackY + trackH; y += 2) {
+    oled.drawPixel(trackX, y);
+  }
+  // Thumb
+  uint8_t thumbH = max((uint8_t)4, (uint8_t)(trackH * visible / count));
+  uint8_t thumbY = trackY + (uint16_t)scroll * (trackH - thumbH) / (count - visible);
+  oled.drawBox(trackX - 1, thumbY, 3, thumbH);
 }

@@ -1,5 +1,6 @@
 #include "ble_scanner.h"
 #include "wifi_scanner.h"
+#include "utils.h"
 
 BLEDeviceInfo bleDevices[MAX_BLE_DEVICES];
 uint8_t bleDeviceCount = 0;
@@ -74,6 +75,19 @@ void updateBLEScan() {
                 strncpy(bleDevices[j].name, device.getName().c_str(), 32);
                 bleDevices[j].name[32] = '\0';
                 bleDevices[j].hasName = true;
+              } else if (!bleDevices[j].hasName && bleDevices[j].mfgId == 0xFFFF) {
+                // Try to get manufacturer ID on re-scan
+                if (device.haveManufacturerData()) {
+                  String mfgData = device.getManufacturerData();
+                  if (mfgData.length() >= 2) {
+                    bleDevices[j].mfgId = (uint8_t)mfgData[0] | ((uint8_t)mfgData[1] << 8);
+                    const char* vendor = getBLEVendor(bleDevices[j].mfgId);
+                    if (vendor) {
+                      strncpy(bleDevices[j].name, vendor, 32);
+                      bleDevices[j].name[32] = '\0';
+                    }
+                  }
+                }
               }
               found = true;
               break;
@@ -87,16 +101,35 @@ void updateBLEScan() {
             bleDevices[bleDeviceCount].lastSeen = now;
             bleDevices[bleDeviceCount].isActive = true;
             bleDevices[bleDeviceCount].advType = 0;
-            
+            bleDevices[bleDeviceCount].mfgId = 0xFFFF;
+
+            // Extract manufacturer company ID from advertisement data
+            if (device.haveManufacturerData()) {
+              String mfgData = device.getManufacturerData();
+              if (mfgData.length() >= 2) {
+                // Company ID is first 2 bytes, little-endian
+                bleDevices[bleDeviceCount].mfgId =
+                  (uint8_t)mfgData[0] | ((uint8_t)mfgData[1] << 8);
+              }
+            }
+
             if (device.haveName()) {
               strncpy(bleDevices[bleDeviceCount].name, device.getName().c_str(), 32);
               bleDevices[bleDeviceCount].name[32] = '\0';
               bleDevices[bleDeviceCount].hasName = true;
             } else {
-              strcpy(bleDevices[bleDeviceCount].name, "Unknown");
-              bleDevices[bleDeviceCount].hasName = false;
+              // Try to resolve name from BLE company ID
+              const char* vendor = getBLEVendor(bleDevices[bleDeviceCount].mfgId);
+              if (vendor) {
+                strncpy(bleDevices[bleDeviceCount].name, vendor, 32);
+                bleDevices[bleDeviceCount].name[32] = '\0';
+                bleDevices[bleDeviceCount].hasName = false;  // still mark as no broadcast name
+              } else {
+                strcpy(bleDevices[bleDeviceCount].name, "Unknown");
+                bleDevices[bleDeviceCount].hasName = false;
+              }
             }
-            
+
             bleDeviceCount++;
           }
         }

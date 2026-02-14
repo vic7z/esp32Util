@@ -8,6 +8,8 @@ extern const Vendor vendors[];
 extern const uint8_t vendorCount;
 
 const char* getVendor(uint8_t* mac);
+const char* getBLEVendor(uint16_t mfgId);
+void loadVendorsFromSPIFFS();
 float estimateDistance(int rssi);
 char getQualityGrade(wifi_ap_record_t* ap);
 bool hasOverlap(uint8_t ch1, uint8_t ch2);

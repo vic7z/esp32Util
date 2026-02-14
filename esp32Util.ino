@@ -267,6 +267,9 @@ void setup() {
   bootLog("Mounting SPIFFS");
   if (SPIFFS.begin(true)) {
     bootOK();
+    bootLog("Loading vendors");
+    loadVendorsFromSPIFFS();
+    bootOK();
   } else {
     Serial.println("[ERROR] SPIFFS mount failed!");
   }

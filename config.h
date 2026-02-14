@@ -6,7 +6,7 @@
 #include <Adafruit_NeoPixel.h>
 #include <Preferences.h>
 
-#define FW_VERSION "v2.0.2"
+#define FW_VERSION "v2.0.4"
 #define FW_DATE "2026-02-14"
 
 #define BTN_ACTION 2
@@ -147,6 +147,7 @@ struct BLEDeviceInfo {
   uint32_t lastSeen;
   uint8_t advType;      // 0=unknown, 1=iBeacon
   bool hasName;
+  uint16_t mfgId;       // BLE manufacturer company ID (0xFFFF = unknown)
 };
 
 struct Vendor {

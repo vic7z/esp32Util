@@ -2,7 +2,7 @@
 
 WiFi and BLE scanner, security monitor, and RF diagnostics tool for ESP32.
 
-![Version](https://img.shields.io/badge/version-v2.0.2-blue)
+![Version](https://img.shields.io/badge/version-v2.0.4-blue)
 ![Platform](https://img.shields.io/badge/platform-ESP32%2C%20ESP32--C3%2C%20ESP32--S2-green)
 
 ## Features
@@ -204,6 +204,10 @@ After flashing new firmware, re-flash the SPIFFS image if it got erased — they
 **Client monitor not detecting devices** — make sure no WiFi scan is running simultaneously. The monitor uses promiscuous mode which is paused during scans.
 
 ## Version History
+
+**v2.0.4** (2026-02-14) — SPIFFS-based vendor lookup for WiFi and BLE devices. WiFi OUI database (~600 entries) resolves MAC addresses to manufacturer names. BLE company ID database (~200 entries) identifies devices by manufacturer data from advertisements. Covers major PC/laptop brands (Intel, Dell, Lenovo, ASUS, Acer, MSI, AMD, HP, Razer, Corsair), mobile (Apple, Samsung, Google, Xiaomi, Huawei), IoT (Espressif, Nordic, Tile, Ruuvi), and peripherals (Logitech, Bose, JBL, Jabra). Falls back to hardcoded table if SPIFFS unavailable.
+
+**v2.0.3** (2026-02-14) — OLED UI polish: header shadow lines for depth, filled footer pills for primary actions, proper scrollbar track with thumb instead of tiny dots, menu selection arrow indicator with page counter, animated scanning dots on empty states, RSSI bars on AP/BLE/device detail screens, inverted alert banners for deauth watch, circle indicators for diagnostics, table headers on baseline compare, continuous health bar, redesigned About screen with version badge.
 
 **v2.0.2** (2026-02-14) — Fixed packet counting: added explicit promiscuous filter for data frames (ESP32-C3 was not delivering data packets), fixed double-counting in channel analyzer (sniffer and handler both incremented per-channel arrays), fixed `channelLoad()` double-weighting beacons, added per-channel data and probe tracking, and reset all counters between channel hops. Live Monitor now shows probe packets separately (B/D/P/X).
 

@@ -1,6 +1,25 @@
 #include "utils.h"
 #include "wifi_scanner.h"
+#include <SPIFFS.h>
 
+// ── SPIFFS-based WiFi OUI lookup ─────────────────────────────────
+
+struct OUIEntry {
+  uint8_t oui[3];
+  char name[12];
+};
+
+struct BLECompany {
+  uint16_t id;
+  char name[14];
+};
+
+static OUIEntry* ouiTable = nullptr;
+static uint16_t ouiCount = 0;
+static BLECompany* bleTable = nullptr;
+static uint16_t bleCount = 0;
+
+// Fallback hardcoded table (used if SPIFFS fails)
 const Vendor vendors[] = {
   {{0x00, 0x03, 0x93}, "Apple"},
   {{0x00, 0x50, 0xF2}, "Microsoft"},
@@ -22,13 +41,124 @@ const Vendor vendors[] = {
 };
 const uint8_t vendorCount = sizeof(vendors) / sizeof(Vendor);
 
+static uint8_t hexVal(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  return 0;
+}
+
+static uint8_t hexByte(const char* s) {
+  return (hexVal(s[0]) << 4) | hexVal(s[1]);
+}
+
+void loadVendorsFromSPIFFS() {
+  // Load WiFi OUI table
+  File ouiFile = SPIFFS.open("/oui.csv", "r");
+  if (ouiFile) {
+    // Count lines first
+    uint16_t lines = 0;
+    while (ouiFile.available()) {
+      if (ouiFile.read() == '\n') lines++;
+    }
+    if (lines > 0) {
+      ouiFile.seek(0);
+      ouiTable = (OUIEntry*)malloc(sizeof(OUIEntry) * lines);
+      if (ouiTable) {
+        ouiCount = 0;
+        char line[32];
+        while (ouiFile.available() && ouiCount < lines) {
+          int len = ouiFile.readBytesUntil('\n', line, sizeof(line) - 1);
+          if (len < 8) continue;  // need at least "AABBCC,X"
+          line[len] = '\0';
+          // Remove trailing \r
+          if (len > 0 && line[len - 1] == '\r') line[--len] = '\0';
+
+          // Parse: AABBCC,VendorName
+          char* comma = strchr(line, ',');
+          if (!comma || (comma - line) != 6) continue;
+
+          ouiTable[ouiCount].oui[0] = hexByte(line);
+          ouiTable[ouiCount].oui[1] = hexByte(line + 2);
+          ouiTable[ouiCount].oui[2] = hexByte(line + 4);
+
+          strncpy(ouiTable[ouiCount].name, comma + 1, 11);
+          ouiTable[ouiCount].name[11] = '\0';
+          ouiCount++;
+        }
+        Serial.printf("[VENDOR] Loaded %d WiFi OUIs\n", ouiCount);
+      }
+    }
+    ouiFile.close();
+  } else {
+    Serial.println("[VENDOR] oui.csv not found, using fallback");
+  }
+
+  // Load BLE company ID table
+  File bleFile = SPIFFS.open("/ble.csv", "r");
+  if (bleFile) {
+    uint16_t lines = 0;
+    while (bleFile.available()) {
+      if (bleFile.read() == '\n') lines++;
+    }
+    if (lines > 0) {
+      bleFile.seek(0);
+      bleTable = (BLECompany*)malloc(sizeof(BLECompany) * lines);
+      if (bleTable) {
+        bleCount = 0;
+        char line[32];
+        while (bleFile.available() && bleCount < lines) {
+          int len = bleFile.readBytesUntil('\n', line, sizeof(line) - 1);
+          if (len < 6) continue;  // need at least "XXXX,X"
+          line[len] = '\0';
+          if (len > 0 && line[len - 1] == '\r') line[--len] = '\0';
+
+          // Parse: XXXX,VendorName
+          char* comma = strchr(line, ',');
+          if (!comma || (comma - line) != 4) continue;
+
+          bleTable[bleCount].id = (hexByte(line) << 8) | hexByte(line + 2);
+          strncpy(bleTable[bleCount].name, comma + 1, 13);
+          bleTable[bleCount].name[13] = '\0';
+          bleCount++;
+        }
+        Serial.printf("[VENDOR] Loaded %d BLE company IDs\n", bleCount);
+      }
+    }
+    bleFile.close();
+  } else {
+    Serial.println("[VENDOR] ble.csv not found");
+  }
+}
+
 const char* getVendor(uint8_t* mac) {
+  // Search SPIFFS table first
+  if (ouiTable && ouiCount > 0) {
+    for (uint16_t i = 0; i < ouiCount; i++) {
+      if (memcmp(mac, ouiTable[i].oui, 3) == 0) {
+        return ouiTable[i].name;
+      }
+    }
+  }
+  // Fallback to hardcoded table
   for (int i = 0; i < vendorCount; i++) {
     if (memcmp(mac, vendors[i].oui, 3) == 0) {
       return vendors[i].name;
     }
   }
   return "Unknown";
+}
+
+const char* getBLEVendor(uint16_t mfgId) {
+  if (mfgId == 0xFFFF) return nullptr;
+  if (bleTable && bleCount > 0) {
+    for (uint16_t i = 0; i < bleCount; i++) {
+      if (bleTable[i].id == mfgId) {
+        return bleTable[i].name;
+      }
+    }
+  }
+  return nullptr;
 }
 
 float estimateDistance(int rssi) {
