@@ -7,16 +7,42 @@ WiFi and BLE scanner, security monitor, and RF diagnostics tool for ESP32.
 
 ## Features
 
-- **WiFi Scanning** — detect and list nearby access points with SSID, BSSID, channel, RSSI, security type, vendor, estimated distance, and signal quality grade (A-F)
-- **BLE Scanning** — discover Bluetooth Low Energy devices with name, address, RSSI, and advertisement type (Generic, iBeacon, Eddystone)
-- **Security Monitoring** — real-time deauthentication attack detection, rogue AP (evil twin) detection, and BLE tracker identification
-- **Channel Analysis** — per-channel traffic breakdown across all 13 channels with overlap detection and best channel recommendation
-- **Client Tracking** — passive WiFi client detection via packet sniffing (probe requests, association frames, data frames) with vendor lookup
-- **Walk Tests** — RSSI signal strength tracking over time for both WiFi APs and BLE devices, with live graph and min/max/avg stats
-- **RF Health Scoring** — environment health assessment with congestion percentage, quality rating, and actionable insights
-- **Web Interface** — full-featured responsive web UI accessible from any phone or laptop over WiFi, with dark/light theme
-- **Deep Sleep** — true deep sleep mode (~5uA) for battery-powered operation
-- **NeoPixel Status LED** — color-coded RF status at a glance
+### Scanning & Discovery
+- **WiFi AP Scanner** — detect nearby access points with SSID, BSSID, channel, RSSI, security type (Open/WEP/WPA/WPA2/WPA3), estimated distance, and signal quality grade (A-F)
+- **BLE Scanner** — discover Bluetooth Low Energy devices with name, address, RSSI, manufacturer ID, and advertisement type
+- **Client Monitor** — passive WiFi client detection via promiscuous mode sniffing (probe requests, association frames, data frames) with channel hopping
+- **Device Tracking** — track up to 15 WiFi clients and BLE devices over time with first/last seen timestamps, presence status, and visit count
+
+### Identification
+- **WiFi Vendor Lookup** — resolves device manufacturer from MAC address using a 600+ entry OUI database stored on SPIFFS (Apple, Samsung, Google, Intel, Cisco, Huawei, Xiaomi, TP-Link, and more)
+- **BLE Vendor Lookup** — identifies BLE devices by manufacturer company ID extracted from advertisement data, with a 200+ entry database covering PC/laptop brands (Intel, Dell, Lenovo, ASUS, Acer, MSI, AMD, HP), mobile (Apple, Samsung, Google, Xiaomi), peripherals (Logitech, Bose, JBL, Jabra, Razer, Corsair), and IoT (Espressif, Nordic, Tile, Ruuvi)
+- **Hardcoded Fallback** — built-in vendor table used automatically if SPIFFS is unavailable
+
+### Analysis & Diagnostics
+- **Channel Analyzer** — per-channel traffic breakdown across all 13 channels with beacon, data, and probe packet counts, overlap detection, and best channel recommendation
+- **Live Monitor** — real-time packet capture showing packets per second, smoothed PPS, average RSSI, and frame type breakdown (Beacon/Data/Probe/Deauth)
+- **RF Health Scoring** — environment health assessment with congestion percentage, quality rating (Good/OK/Busy/Avoid), and actionable insights with RSSI trend graph
+- **Walk Tests** — RSSI signal strength tracking over time for both WiFi APs and BLE devices, with live graph, min/max/avg stats, and toggleable views
+- **Why Is It Slow?** — automated WiFi performance diagnostics analyzing congestion, AP count, and signal quality with per-AP RSSI graphs
+- **Channel Recommendation** — finds the least congested non-overlapping channel (1, 6, 11)
+- **Environment Baseline** — snapshot and compare RF environment changes over time
+
+### Security
+- **Deauth Detection** — real-time monitoring of deauthentication and disassociation attacks with configurable alert thresholds and event logging
+- **Rogue AP Detection** — identifies evil twin access points by finding duplicate SSIDs with different BSSIDs
+- **BLE Tracker Watch** — flags suspicious BLE devices that may be tracking you (AirTags, Tiles, unknown persistent trackers)
+- **Event Log** — timestamped security event history (last 10 events)
+
+### Interface
+- **128x64 OLED Display** — hierarchical menu system with 11 main items and 4 submenus, scrollbar navigation, animated scanning indicators, RSSI bars on detail screens, and polished UI with header shadows and footer action pills
+- **Web Interface** — full-featured responsive single-page web UI with dark/light themes, accessible from any phone or laptop over WiFi (dashboard, analyzer, packet monitor, security, client tracking, settings)
+- **NeoPixel Status LED** — color-coded RF status at a glance (red=attack, green=clean, yellow=busy, blue=analyzing)
+- **Two-Button Control** — action button (navigate/select) and back button (return/sleep)
+
+### Power & Hardware
+- **Deep Sleep** — true deep sleep mode (~5uA) for battery-powered operation, triggered by long-press or screen timeout
+- **Configurable Settings** — scan speed, RSSI threshold, RGB brightness, screen timeout, deauth threshold, power mode, and WiFi AP credentials, all persisted across reboots
+- **Multi-Board Support** — runs on ESP32, ESP32-S2, and ESP32-C3
 
 ## Hardware
 
