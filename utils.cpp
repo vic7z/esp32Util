@@ -2,21 +2,18 @@
 #include "wifi_scanner.h"
 #include <SPIFFS.h>
 
-// ── SPIFFS-based WiFi OUI lookup ─────────────────────────────────
+// ── SPIFFS binary vendor lookup (sorted, binary search) ─────────
 
-struct OUIEntry {
-  uint8_t oui[3];
-  char name[12];
-};
+// Binary file formats (packed, no padding):
+//   oui.bin: [3B OUI][12B name] = 15 bytes per entry, sorted by OUI
+//   ble.bin: [2B ID big-endian][14B name] = 16 bytes per entry, sorted by ID
 
-struct BLECompany {
-  uint16_t id;
-  char name[14];
-};
+#define OUI_ENTRY_SIZE 15
+#define BLE_ENTRY_SIZE 16
 
-static OUIEntry* ouiTable = nullptr;
+static uint8_t* ouiData = nullptr;
 static uint16_t ouiCount = 0;
-static BLECompany* bleTable = nullptr;
+static uint8_t* bleData = nullptr;
 static uint16_t bleCount = 0;
 
 // Fallback hardcoded table (used if SPIFFS fails)
@@ -41,103 +38,52 @@ const Vendor vendors[] = {
 };
 const uint8_t vendorCount = sizeof(vendors) / sizeof(Vendor);
 
-static uint8_t hexVal(char c) {
-  if (c >= '0' && c <= '9') return c - '0';
-  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-  return 0;
-}
-
-static uint8_t hexByte(const char* s) {
-  return (hexVal(s[0]) << 4) | hexVal(s[1]);
-}
-
 void loadVendorsFromSPIFFS() {
-  // Load WiFi OUI table
-  File ouiFile = SPIFFS.open("/oui.csv", "r");
+  // Load WiFi OUI binary table
+  File ouiFile = SPIFFS.open("/oui.bin", "r");
   if (ouiFile) {
-    // Count lines first
-    uint16_t lines = 0;
-    while (ouiFile.available()) {
-      if (ouiFile.read() == '\n') lines++;
-    }
-    if (lines > 0) {
-      ouiFile.seek(0);
-      ouiTable = (OUIEntry*)malloc(sizeof(OUIEntry) * lines);
-      if (ouiTable) {
-        ouiCount = 0;
-        char line[32];
-        while (ouiFile.available() && ouiCount < lines) {
-          int len = ouiFile.readBytesUntil('\n', line, sizeof(line) - 1);
-          if (len < 8) continue;  // need at least "AABBCC,X"
-          line[len] = '\0';
-          // Remove trailing \r
-          if (len > 0 && line[len - 1] == '\r') line[--len] = '\0';
-
-          // Parse: AABBCC,VendorName
-          char* comma = strchr(line, ',');
-          if (!comma || (comma - line) != 6) continue;
-
-          ouiTable[ouiCount].oui[0] = hexByte(line);
-          ouiTable[ouiCount].oui[1] = hexByte(line + 2);
-          ouiTable[ouiCount].oui[2] = hexByte(line + 4);
-
-          strncpy(ouiTable[ouiCount].name, comma + 1, 11);
-          ouiTable[ouiCount].name[11] = '\0';
-          ouiCount++;
-        }
-        Serial.printf("[VENDOR] Loaded %d WiFi OUIs\n", ouiCount);
+    size_t sz = ouiFile.size();
+    ouiCount = sz / OUI_ENTRY_SIZE;
+    if (ouiCount > 0) {
+      ouiData = (uint8_t*)malloc(sz);
+      if (ouiData) {
+        ouiFile.read(ouiData, sz);
+        Serial.printf("[VENDOR] Loaded %d WiFi OUIs (binary)\n", ouiCount);
       }
     }
     ouiFile.close();
   } else {
-    Serial.println("[VENDOR] oui.csv not found, using fallback");
+    Serial.println("[VENDOR] oui.bin not found, using fallback");
   }
 
-  // Load BLE company ID table
-  File bleFile = SPIFFS.open("/ble.csv", "r");
+  // Load BLE company ID binary table
+  File bleFile = SPIFFS.open("/ble.bin", "r");
   if (bleFile) {
-    uint16_t lines = 0;
-    while (bleFile.available()) {
-      if (bleFile.read() == '\n') lines++;
-    }
-    if (lines > 0) {
-      bleFile.seek(0);
-      bleTable = (BLECompany*)malloc(sizeof(BLECompany) * lines);
-      if (bleTable) {
-        bleCount = 0;
-        char line[32];
-        while (bleFile.available() && bleCount < lines) {
-          int len = bleFile.readBytesUntil('\n', line, sizeof(line) - 1);
-          if (len < 6) continue;  // need at least "XXXX,X"
-          line[len] = '\0';
-          if (len > 0 && line[len - 1] == '\r') line[--len] = '\0';
-
-          // Parse: XXXX,VendorName
-          char* comma = strchr(line, ',');
-          if (!comma || (comma - line) != 4) continue;
-
-          bleTable[bleCount].id = (hexByte(line) << 8) | hexByte(line + 2);
-          strncpy(bleTable[bleCount].name, comma + 1, 13);
-          bleTable[bleCount].name[13] = '\0';
-          bleCount++;
-        }
-        Serial.printf("[VENDOR] Loaded %d BLE company IDs\n", bleCount);
+    size_t sz = bleFile.size();
+    bleCount = sz / BLE_ENTRY_SIZE;
+    if (bleCount > 0) {
+      bleData = (uint8_t*)malloc(sz);
+      if (bleData) {
+        bleFile.read(bleData, sz);
+        Serial.printf("[VENDOR] Loaded %d BLE company IDs (binary)\n", bleCount);
       }
     }
     bleFile.close();
   } else {
-    Serial.println("[VENDOR] ble.csv not found");
+    Serial.println("[VENDOR] ble.bin not found");
   }
 }
 
 const char* getVendor(uint8_t* mac) {
-  // Search SPIFFS table first
-  if (ouiTable && ouiCount > 0) {
-    for (uint16_t i = 0; i < ouiCount; i++) {
-      if (memcmp(mac, ouiTable[i].oui, 3) == 0) {
-        return ouiTable[i].name;
-      }
+  // Binary search on sorted OUI table
+  if (ouiData && ouiCount > 0) {
+    int lo = 0, hi = ouiCount - 1;
+    while (lo <= hi) {
+      int mid = (lo + hi) / 2;
+      int cmp = memcmp(mac, ouiData + mid * OUI_ENTRY_SIZE, 3);
+      if (cmp == 0) return (const char*)(ouiData + mid * OUI_ENTRY_SIZE + 3);
+      if (cmp < 0) hi = mid - 1;
+      else lo = mid + 1;
     }
   }
   // Fallback to hardcoded table
@@ -151,11 +97,15 @@ const char* getVendor(uint8_t* mac) {
 
 const char* getBLEVendor(uint16_t mfgId) {
   if (mfgId == 0xFFFF) return nullptr;
-  if (bleTable && bleCount > 0) {
-    for (uint16_t i = 0; i < bleCount; i++) {
-      if (bleTable[i].id == mfgId) {
-        return bleTable[i].name;
-      }
+  // Binary search on sorted BLE table
+  if (bleData && bleCount > 0) {
+    int lo = 0, hi = bleCount - 1;
+    while (lo <= hi) {
+      int mid = (lo + hi) / 2;
+      uint16_t id = (bleData[mid * BLE_ENTRY_SIZE] << 8) | bleData[mid * BLE_ENTRY_SIZE + 1];
+      if (id == mfgId) return (const char*)(bleData + mid * BLE_ENTRY_SIZE + 2);
+      if (mfgId < id) hi = mid - 1;
+      else lo = mid + 1;
     }
   }
   return nullptr;

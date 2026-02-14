@@ -2,7 +2,7 @@
 
 WiFi and BLE scanner, security monitor, and RF diagnostics tool for ESP32.
 
-![Version](https://img.shields.io/badge/version-v2.0.4-blue)
+![Version](https://img.shields.io/badge/version-v2.0.5-blue)
 ![Platform](https://img.shields.io/badge/platform-ESP32%2C%20ESP32--C3%2C%20ESP32--S2-green)
 
 ## Features
@@ -179,39 +179,194 @@ When sleeping: display off, LED off, WiFi off, BLE off.
 - Web UI stored on SPIFFS, separate from firmware
 - Tracks up to 20 APs, 20 BLE devices, 15 monitored devices, 10 security events
 
-## Build
+## Build & Flash
+
+This project has **two separate parts** that must both be flashed:
+
+1. **Firmware** — the main `.ino` sketch (compiled code)
+2. **SPIFFS data** — the `data/` folder containing the web UI (`index.html`, `app.js`, `style.css`) and vendor databases (`oui.bin`, `ble.bin`)
+
+Both live in independent flash partitions and can be flashed separately.
+
+### Prerequisites
+
+- ESP32 board with USB connection (ESP32-C3, ESP32, or ESP32-S2)
+- USB driver installed for your board (CP2102/CH340/JTAG depending on board)
+- Identify your serial port: `COM3` on Windows, `/dev/ttyUSB0` or `/dev/ttyACM0` on Linux, `/dev/cu.usbserial-*` on macOS
+
+### Partition Scheme
+
+This project requires the **Huge APP** partition scheme (3MB firmware / 1MB SPIFFS). The default partition is too small.
+
+| Partition | Offset | Size |
+|-----------|--------|------|
+| Firmware | 0x10000 | 3MB (3,145,728 bytes) |
+| SPIFFS | 0x310000 | 1MB (917,504 bytes) |
+
+---
+
+### Option 1: Arduino CLI (Recommended)
+
+The fastest method — everything from the command line.
+
+#### 1. Install tools and dependencies
 
 ```bash
-# install dependencies
+# Install ESP32 board support
 arduino-cli core install esp32:esp32
+
+# Install required libraries
 arduino-cli lib install U8g2 "Adafruit NeoPixel"
+```
 
-# compile
+#### 2. Compile the firmware
+
+```bash
 arduino-cli compile --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app .
+```
 
-# upload (replace COM3 with your port)
+> For other boards, replace `esp32c3` with `esp32` or `esp32s2`.
+
+#### 3. Upload the firmware
+
+```bash
 arduino-cli upload -p COM3 --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app .
 ```
 
-### Flashing the Web UI (SPIFFS)
-
-The web UI lives in the `data/` folder (index.html, app.js, style.css) and gets flashed to SPIFFS separately from firmware:
+#### 4. Build and flash SPIFFS
 
 ```bash
-# build SPIFFS image
+# Build the SPIFFS image from the data/ folder
 mkspiffs -c data -b 4096 -p 256 -s 917504 spiffs.bin
 
-# flash it
+# Flash it to the SPIFFS partition
 esptool --chip esp32c3 --port COM3 --baud 921600 write_flash 0x310000 spiffs.bin
 ```
 
-SPIFFS partition: 917504 bytes (0xE0000) starting at flash offset 0x310000.
+> **Tool paths** — if `mkspiffs` or `esptool` aren't in your PATH, find them in your Arduino installation:
+>
+> | Tool | Windows | Linux/macOS |
+> |------|---------|-------------|
+> | mkspiffs | `%LOCALAPPDATA%\Arduino15\packages\esp32\tools\mkspiffs\0.2.3\mkspiffs.exe` | `~/.arduino15/packages/esp32/tools/mkspiffs/0.2.3/mkspiffs` |
+> | esptool | `%LOCALAPPDATA%\Arduino15\packages\esp32\tools\esptool_py\5.1.0\esptool.exe` | `~/.arduino15/packages/esp32/tools/esptool_py/5.1.0/esptool` |
 
-Tool paths on Windows (via Arduino):
-- `mkspiffs`: `%LOCALAPPDATA%/Arduino15/packages/esp32/tools/mkspiffs/0.2.3/mkspiffs.exe`
-- `esptool`: `%LOCALAPPDATA%/Arduino15/packages/esp32/tools/esptool_py/5.1.0/esptool.exe`
+---
 
-After flashing new firmware, re-flash the SPIFFS image if it got erased — they're independent partitions.
+### Option 2: Arduino IDE
+
+#### 1. Setup
+
+- Open `esp32Util.ino` in Arduino IDE
+- Go to **File > Preferences**, add this to "Additional Board Manager URLs":
+  ```
+  https://espressif.github.io/arduino-esp32/package_esp32_index.json
+  ```
+- Go to **Tools > Board > Boards Manager**, search `esp32`, install **esp32 by Espressif Systems**
+- Go to **Sketch > Include Library > Manage Libraries**, install **U8g2** and **Adafruit NeoPixel**
+
+#### 2. Board configuration
+
+Set these under the **Tools** menu:
+
+| Setting | Value |
+|---------|-------|
+| Board | ESP32C3 Dev Module (or your board) |
+| Partition Scheme | Huge APP (3MB No OTA/1MB SPIFFS) |
+| Upload Speed | 921600 |
+| Port | Your COM port |
+
+#### 3. Upload firmware
+
+Click **Sketch > Upload** (or Ctrl+U).
+
+#### 4. Upload SPIFFS data
+
+Install the [Arduino ESP32 SPIFFS upload plugin](https://github.com/me-no-dev/arduino-esp32fs-plugin):
+
+1. Download the plugin `.jar` file
+2. Place it in `<Arduino IDE folder>/tools/ESP32FS/tool/esp32fs.jar`
+3. Restart Arduino IDE
+4. Go to **Tools > ESP32 Sketch Data Upload**
+
+This uploads the entire `data/` folder to SPIFFS automatically.
+
+> **Note**: If the plugin is not available for your IDE version, use the CLI method (Option 1, step 4) or esptool directly (Option 3).
+
+---
+
+### Option 3: Pre-built Binaries with esptool
+
+If you have pre-built `.bin` files (from a release or from someone else's compile), you can flash everything directly with `esptool` without compiling.
+
+#### Flash firmware only
+
+```bash
+esptool --chip esp32c3 --port COM3 --baud 921600 write_flash \
+  0x0     build/esp32Util.ino.bootloader.bin \
+  0x8000  build/esp32Util.ino.partitions.bin \
+  0xe000  boot_app0.bin \
+  0x10000 build/esp32Util.ino.bin
+```
+
+#### Flash SPIFFS only
+
+```bash
+esptool --chip esp32c3 --port COM3 --baud 921600 write_flash 0x310000 spiffs.bin
+```
+
+#### Flash everything at once
+
+```bash
+esptool --chip esp32c3 --port COM3 --baud 921600 write_flash \
+  0x0     build/esp32Util.ino.bootloader.bin \
+  0x8000  build/esp32Util.ino.partitions.bin \
+  0xe000  boot_app0.bin \
+  0x10000 build/esp32Util.ino.bin \
+  0x310000 spiffs.bin
+```
+
+> **Where to find build files**: After compiling with Arduino CLI, the build output is in the `build/` folder. The `boot_app0.bin` file is at:
+> `%LOCALAPPDATA%\Arduino15\packages\esp32\hardware\esp32\<version>\tools\partitions\boot_app0.bin`
+
+---
+
+### Option 4: ESP Flasher GUI (Easiest for beginners)
+
+[NodeMCU PyFlasher](https://github.com/marcelstoer/nodemcu-pyflasher) or [ESP Flash Download Tool](https://www.espressif.com/en/support/download/other-tools) (Windows only) provide a graphical interface.
+
+1. Compile the project first using Arduino CLI or Arduino IDE
+2. Open the flasher tool
+3. Set the serial port and baud rate (921600)
+4. Add the firmware binary at offset `0x10000`
+5. Add the SPIFFS image at offset `0x310000`
+6. Click Flash
+
+---
+
+### Verifying the flash
+
+After flashing both firmware and SPIFFS, the device should boot and show the menu on the OLED. Open a serial monitor at **115200 baud** to check boot logs:
+
+```
+[BOOT] Mounting SPIFFS
+[BOOT] OK
+[BOOT] Loading vendors
+[VENDOR] Loaded 862 WiFi OUIs (binary)
+[VENDOR] Loaded 207 BLE company IDs (binary)
+[BOOT] OK
+```
+
+If you see `oui.bin not found` or `ble.bin not found`, the SPIFFS image wasn't flashed or was overwritten. Re-flash the SPIFFS partition.
+
+### Quick reference
+
+| What | Command |
+|------|---------|
+| Compile | `arduino-cli compile --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app .` |
+| Upload firmware | `arduino-cli upload -p COM3 --fqbn esp32:esp32:esp32c3:PartitionScheme=huge_app .` |
+| Build SPIFFS | `mkspiffs -c data -b 4096 -p 256 -s 917504 spiffs.bin` |
+| Flash SPIFFS | `esptool --chip esp32c3 --port COM3 --baud 921600 write_flash 0x310000 spiffs.bin` |
+| Serial monitor | `arduino-cli monitor -p COM3 --config baudrate=115200` |
 
 ## Troubleshooting
 
@@ -231,7 +386,9 @@ After flashing new firmware, re-flash the SPIFFS image if it got erased — they
 
 ## Version History
 
-**v2.0.4** (2026-02-14) — SPIFFS-based vendor lookup for WiFi and BLE devices. WiFi OUI database (~600 entries) resolves MAC addresses to manufacturer names. BLE company ID database (~200 entries) identifies devices by manufacturer data from advertisements. Covers major PC/laptop brands (Intel, Dell, Lenovo, ASUS, Acer, MSI, AMD, HP, Razer, Corsair), mobile (Apple, Samsung, Google, Xiaomi, Huawei), IoT (Espressif, Nordic, Tile, Ruuvi), and peripherals (Logitech, Bose, JBL, Jabra). Falls back to hardcoded table if SPIFFS unavailable.
+**v2.0.5** (2026-02-14) — Converted vendor databases from CSV to packed binary format for faster loading and lookup. Files are sorted and searched with binary search (O(log n) instead of O(n) linear scan). Added 200+ router/AP OUIs: D-Link, ASUS, Ubiquiti, Zyxel, Linksys, Belkin, Arris, MikroTik, Ruckus, EnGenius, AVM, Sagemcom, Actiontec, Comcast, TRENDnet, DrayTek. Total: 862 WiFi OUIs, 207 BLE company IDs. Firmware 670 bytes smaller.
+
+**v2.0.4** (2026-02-14) — SPIFFS-based vendor lookup for WiFi and BLE devices. WiFi OUI database resolves MAC addresses to manufacturer names. BLE company ID database identifies devices by manufacturer data from advertisements. Covers PC/laptop brands (Intel, Dell, Lenovo, ASUS, Acer, MSI, AMD, HP, Razer, Corsair), mobile (Apple, Samsung, Google, Xiaomi, Huawei), IoT (Espressif, Nordic, Tile, Ruuvi), and peripherals (Logitech, Bose, JBL, Jabra). Falls back to hardcoded table if SPIFFS unavailable.
 
 **v2.0.3** (2026-02-14) — OLED UI polish: header shadow lines for depth, filled footer pills for primary actions, proper scrollbar track with thumb instead of tiny dots, menu selection arrow indicator with page counter, animated scanning dots on empty states, RSSI bars on AP/BLE/device detail screens, inverted alert banners for deauth watch, circle indicators for diagnostics, table headers on baseline compare, continuous health bar, redesigned About screen with version badge.
 

@@ -6,7 +6,7 @@
 #include <Adafruit_NeoPixel.h>
 #include <Preferences.h>
 
-#define FW_VERSION "v2.0.4"
+#define FW_VERSION "v2.0.5"
 #define FW_DATE "2026-02-14"
 
 #define BTN_ACTION 2
