@@ -14,5 +14,6 @@ void addOrUpdateBLEDevice(const char* address, const char* name, int8_t rssi);
 void checkDeviceTimeouts();
 void clearDeviceMonitor();
 void startDeviceMonitorSniffer();
+void initDeviceMonitorQueue();
 
 #endif // DEVICE_MONITOR_H

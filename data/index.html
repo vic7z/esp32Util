@@ -23,9 +23,50 @@
 <button onclick="showTab('analyzer',this)">Analyzer</button>
 <button onclick="showTab('security',this)">Security<span class="badge" id="nav-s">0</span></button>
 <button onclick="showTab('monitor',this)">Clients<span class="badge" id="nav-m">0</span></button>
+<button onclick="showTab('lan',this)">Local Network</button>
 <button onclick="showTab('settings',this)">Settings</button>
 </nav>
 <main class="main">
+<div id="lan" class="tab">
+<section class="card"><div class="card-header"><h2 class="card-title">Local Network</h2></div><div class="card-body lan-body">
+<p id="lan-status" role="status" aria-live="polite">Connect to your 2.4 GHz WiFi to discover LAN neighbors.</p>
+<form class="lan-form" onsubmit="connectLAN(event)">
+<div class="form-group"><label for="lan-ssid">WiFi network name</label><input id="lan-ssid" type="text" maxlength="32" required autocomplete="off"></div>
+<div class="form-group"><label for="lan-password">WiFi password (empty for open network)</label><input id="lan-password" type="password" maxlength="63" autocomplete="off"></div>
+<div class="lan-actions"><button id="lan-connect" class="btn btn-primary" type="submit">Connect</button><button id="lan-disconnect" class="btn" type="button" onclick="lanAction('disconnect')">Disconnect</button></div>
+</form>
+<p class="lan-note">WiFi credentials stay in RAM and are cleared on disconnect or restart. Connecting may briefly change the device access point's channel; reconnect your phone to the device WiFi if needed. Disconnect from the LAN to use radio capture and WiFi/BLE scans again.</p>
+<p id="lan-progress" role="status" aria-live="polite">No LAN scan running.</p>
+<form class="lan-form" onsubmit="discoverLAN(event)">
+<div class="form-group"><label for="lan-first">First IPv4 address</label><input id="lan-first" type="text" maxlength="15" required placeholder="192.168.1.1" inputmode="decimal"></div>
+<div class="form-group"><label for="lan-last">Last IPv4 address</label><input id="lan-last" type="text" maxlength="15" required placeholder="192.168.1.254" inputmode="decimal"></div>
+<div class="lan-actions"><button id="lan-discover" class="btn btn-primary" type="submit">Discover neighbors</button><button id="lan-cancel" class="btn" type="button" onclick="lanAction('cancel')">Cancel scan</button></div>
+</form>
+<p class="lan-note">Discover up to 254 addresses per run; the default covers your current /24 or smaller subnet. Up to 32 ARP neighbors are kept. Results may include cached neighbors; client isolation can hide devices. The device's own access point subnet is excluded.</p>
+<div class="table-container"><table><caption>ARP neighbors</caption><thead><tr><th scope="col">IPv4</th><th scope="col">MAC</th><th scope="col">Vendor</th><th scope="col">Select</th></tr></thead><tbody id="lan-hosts"><tr><td colspan="4" class="empty">No discovery results yet</td></tr></tbody></table></div>
+<form class="lan-form" onsubmit="scanLANPorts(event)">
+<div class="form-group"><label for="lan-target">One LAN host</label><input id="lan-target" type="text" maxlength="15" required placeholder="Select a neighbor or enter IPv4" inputmode="decimal"></div>
+<div class="form-group"><label for="lan-ports">TCP ports (up to 32, commas or short ranges)</label><input id="lan-ports" type="text" maxlength="256" required value="21,22,23,25,53,80,110,139,143,443,445,3306,3389,8080,8443"></div>
+<div class="lan-actions"><button id="lan-scan-ports" class="btn btn-primary" type="submit">Scan TCP ports</button></div>
+</form>
+<p class="lan-note">One connection at a time, with a 350 ms limit per port. A timeout is inconclusive. Common-use labels do not identify the service actually running.</p>
+<div class="table-container"><table><caption id="lan-port-caption">TCP port results</caption><thead><tr><th scope="col">Port</th><th scope="col">State</th><th scope="col">Common use</th></tr></thead><tbody id="lan-port-results"><tr><td colspan="3" class="empty">Select a host and start a port scan</td></tr></tbody></table></div>
+<h3>Device identification</h3>
+<form class="lan-form" onsubmit="identifyLAN(event)">
+<div class="form-group"><label for="lan-http-port">HTTP port on selected host</label><select id="lan-http-port"><option>80</option><option>8080</option><option>8000</option><option>8888</option><option>3000</option><option>5000</option><option>7001</option></select></div>
+<div class="lan-actions"><button id="lan-identify" class="btn btn-primary" type="submit">Identify device</button></div>
+</form>
+<p class="lan-note">Uses the One LAN host address above. Reads up to 4 KB from HTTP / with a 2.5 second deadline. No HTTPS, redirects, login, scripts or linked pages are followed. Titles and headers are self-reported; suggested device categories are guesses. Compressed and chunked bodies show headers only.</p>
+<p id="lan-identity-status" role="status" aria-live="polite">Select a host to read its HTTP identity.</p>
+<dl class="lan-identity-details" id="lan-identity-details" hidden>
+<dt>Suggested category</dt><dd id="lan-identity-category"></dd>
+<dt>HTTP status</dt><dd id="lan-identity-code"></dd>
+<dt>Page title (reported)</dt><dd id="lan-identity-title"></dd>
+<dt>Server (reported)</dt><dd id="lan-identity-server"></dd>
+<dt>Content type</dt><dd id="lan-identity-type"></dd>
+</dl>
+</div></section>
+</div>
 <div id="dash" class="tab active">
 <div class="stats">
 <div class="stat-card" id="stat-wifi"><div class="stat-icon">&#128246;</div><div class="stat-label">WiFi Networks</div><div class="stat-value" id="d-w">0</div></div>
@@ -47,12 +88,29 @@
 <div id="wifi" class="tab">
 <div class="card"><div class="card-header"><div class="card-title">WiFi Networks<span class="count" id="w-count">0 found</span></div><div class="btn-group"><button class="btn btn-primary" onclick="scanWiFi()">Scan</button><button class="btn btn-danger" onclick="cmd('clear')">Clear</button></div></div><div class="card-body"><div class="table-container"><table><thead><tr><th class="col-sig">Sig</th><th class="col-ssid">Network</th><th class="col-bssid">BSSID</th><th class="col-ch">Ch</th><th class="col-rssi">RSSI</th><th class="col-sec">Security</th><th style="width:36px">Gr</th></tr></thead><tbody id="w-tbl"></tbody></table></div></div></div>
 <div class="card" id="walk-card" style="display:none"><div class="card-header"><div class="card-title">Walk Test<span class="count" id="walk-target"></span></div><button class="btn btn-danger btn-sm" onclick="stopWalk()">Stop</button></div><div class="card-body"><div id="walk-stats"></div><canvas id="walk-chart" width="600" height="150"></canvas></div></div>
-<div class="card" id="hidden-card" style="display:none"><div class="card-header"><div class="card-title">Hidden Networks<span class="count" id="h-count">0</span></div></div><div class="card-body"><div class="table-container"><table><thead><tr><th>SSID</th><th class="col-ch">Ch</th><th class="col-rssi">RSSI</th></tr></thead><tbody id="h-tbl"></tbody></table></div></div></div>
+<div class="card" id="hidden-card" style="display:none"><div class="card-header"><div class="card-title">Probed Network Names<span class="count" id="h-count">0</span></div></div><div class="card-body"><div class="table-container"><table><thead><tr><th>SSID</th><th class="col-ch">Ch</th><th class="col-rssi">RSSI</th></tr></thead><tbody id="h-tbl"></tbody></table></div></div></div>
 </div>
 <div id="ble" class="tab">
 <div class="card"><div class="card-header"><div class="card-title">Bluetooth Devices<span class="count" id="b-count">0 found</span></div><div class="btn-group"><button class="btn btn-primary" onclick="scanBLE()">Scan</button></div></div><div class="card-body"><div class="table-container"><table><thead><tr><th class="col-sig">Sig</th><th class="col-name">Name</th><th class="col-addr">Address</th><th class="col-rssi">RSSI</th><th class="col-type">Type</th></tr></thead><tbody id="b-tbl"></tbody></table></div></div></div>
 </div>
 <div id="analyzer" class="tab">
+<section class="card" aria-labelledby="capture-title">
+<div class="card-header"><h2 class="card-title" id="capture-title">Probe History &amp; EAPOL</h2></div>
+<div class="card-body capture-body">
+<p id="capture-status" role="status" aria-live="polite">Loading capture status…</p>
+<div class="capture-actions">
+<button class="btn btn-primary" id="capture-listen" onclick="captureAction('start_sniffer')">Start listening</button>
+<button class="btn" id="capture-stop" onclick="captureAction('stop_capture')">Stop listening</button>
+<button class="btn btn-primary" id="capture-record" onclick="captureAction('start_pcap')">New PCAP</button>
+<button class="btn" id="capture-stop-pcap" onclick="captureAction('stop_pcap')">Stop PCAP</button>
+<button class="btn" id="capture-download" onclick="downloadPCAP()">Download PCAP</button>
+<button class="btn" onclick="captureAction('clear_capture')">Clear history &amp; PCAP</button>
+</div>
+<p class="capture-note">Listening stays on the web access point channel. New PCAP replaces the previous capture and keeps the first 32 packets (up to 768 frame bytes each). Download stops recording. History is kept in RAM until cleared or restarted.</p>
+<p id="capture-eapol">EAPOL: 0 · Authentication activity.</p>
+<p id="capture-buffer">No PCAP packets saved.</p>
+<div class="table-container"><table><caption class="capture-note">Probe requests by source and network name. First/last times are device uptime.</caption><thead><tr><th scope="col">Network</th><th scope="col">Source MAC</th><th scope="col">Ch</th><th scope="col">RSSI</th><th scope="col">Seen</th><th scope="col">First</th><th scope="col">Last</th></tr></thead><tbody id="capture-probes"><tr><td colspan="7" class="empty">Start listening to collect probe history</td></tr></tbody></table></div>
+</div></section>
 <div class="grid-2">
 <div class="card"><div class="card-header"><div class="card-title">Channel Usage</div><button class="btn btn-sm btn-primary" onclick="scanWiFi()">Refresh</button></div><div class="card-body"><div class="channels" id="analyzer-ch"></div></div></div>
 <div class="card"><div class="card-header"><div class="card-title">Recommendations</div></div><div class="card-body" id="ch-rec"><div class="empty"><div class="empty-icon">&#128202;</div><p>Run a scan to get recommendations</p></div></div></div>
@@ -66,7 +124,7 @@
 <div class="stats" style="grid-template-columns:repeat(3,1fr)">
 <div class="stat-card"><div class="stat-icon">&#9888;</div><div class="stat-label">Deauth</div><div class="stat-value" id="s-d" style="color:var(--green)">0</div></div>
 <div class="stat-card"><div class="stat-icon">&#9888;</div><div class="stat-label">Rogue APs</div><div class="stat-value" id="s-r" style="color:var(--green)">0</div></div>
-<div class="stat-card"><div class="stat-icon">&#128205;</div><div class="stat-label">Trackers</div><div class="stat-value" id="s-t" style="color:var(--green)">0</div></div>
+<div class="stat-card"><div class="stat-icon">&#128205;</div><div class="stat-label">BLE to Review</div><div class="stat-value" id="s-t" style="color:var(--green)">0</div></div>
 </div>
 <div class="grid-2">
 <div class="card"><div class="card-header"><div class="card-title">Rogue APs</div></div><div class="card-body" id="rogue-list"><div class="empty"><div class="empty-icon">&#10003;</div><p>No rogue APs detected</p></div></div></div>
@@ -88,13 +146,13 @@
 </div></div></div>
 <div class="card"><div class="card-header"><div class="card-title">WiFi AP Settings</div><span style="color:var(--orange);font-size:.78rem">Restart required</span></div><div class="card-body"><div class="form-grid">
 <div class="form-group"><label>AP Name (SSID)</label><input type="text" id="s-ap-ssid" maxlength="32" placeholder="ESP32-Tool"></div>
-<div class="form-group"><label>AP Password (empty=open)</label><input type="text" id="s-ap-pass" maxlength="64" placeholder="Min 8 characters"></div>
-</div><p style="color:var(--muted);font-size:.78rem;margin-top:10px">Leave password empty for open network</p></div></div>
+<div class="form-group"><label>AP Password (empty=default)</label><input type="text" id="s-ap-pass" maxlength="63" placeholder="Min 8 characters"></div>
+</div><p style="color:var(--muted);font-size:.78rem;margin-top:10px">An empty password uses the device default: 12345678</p></div></div>
 </div>
 </main>
 <div class="modal" id="ap-modal"><div class="modal-content"><div class="modal-header"><div class="modal-title">Network Details</div><button class="close-btn" onclick="closeModal()">&times;</button></div><div class="modal-body" id="ap-modal-body"></div><div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">Close</button></div></div></div>
 <div class="modal" id="ble-modal"><div class="modal-content"><div class="modal-header"><div class="modal-title">Device Details</div><button class="close-btn" onclick="closeModal()">&times;</button></div><div class="modal-body" id="ble-modal-body"></div><div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">Close</button></div></div></div>
-<div class="modal pkt-modal" id="pkt-modal"><div class="modal-content"><div class="modal-header"><div class="modal-title" style="display:flex;align-items:center;gap:8px">Packet Monitor - CH <button class="toggle-btn" onclick="changePktCh(-1)" style="padding:4px 10px;font-size:.82rem">&laquo;</button><span id="pkt-ch-num">--</span><button class="toggle-btn" onclick="changePktCh(1)" style="padding:4px 10px;font-size:.82rem">&raquo;</button></div><button class="close-btn" onclick="closePktModal()">&times;</button></div><div class="modal-body"><div class="pkt-stats"><div class="pkt-stat"><div class="pkt-stat-value" id="pkt-total">0</div><div class="pkt-stat-label">Total</div></div><div class="pkt-stat"><div class="pkt-stat-value" id="pkt-beacon">0</div><div class="pkt-stat-label">Beacons</div></div><div class="pkt-stat"><div class="pkt-stat-value" id="pkt-data">0</div><div class="pkt-stat-label">Data</div></div><div class="pkt-stat"><div class="pkt-stat-value" id="pkt-probe">0</div><div class="pkt-stat-label">Probes</div></div><div class="pkt-stat" id="pkt-deauth-stat"><div class="pkt-stat-value" id="pkt-deauth">0</div><div class="pkt-stat-label">Deauth</div></div><div class="pkt-stat"><div class="pkt-stat-value" id="pkt-pps">0</div><div class="pkt-stat-label">PPS</div></div><div class="pkt-stat"><div class="pkt-stat-value" id="pkt-peak">0</div><div class="pkt-stat-label">Peak</div></div></div><div class="toggle-group"><button class="toggle-btn" id="verb-btn" onclick="toggleVerbose()">Log</button><button class="toggle-btn" onclick="exportPktLog()">Export</button><span id="pkt-unique" style="color:var(--muted);font-size:.72rem;margin-left:auto">Devices: 0</span></div><div class="pkt-content"><div class="pkt-log" id="pkt-log"></div><canvas class="pkt-graph" id="pkt-graph" width="750" height="230"></canvas></div></div><div class="modal-footer"><button class="btn btn-primary" onclick="closePktModal()">Close</button></div></div></div>
+<div class="modal pkt-modal" id="pkt-modal"><div class="modal-content"><div class="modal-header"><div class="modal-title" style="display:flex;align-items:center;gap:8px">Packet Monitor - CH <span id="pkt-ch-num">--</span></div><button class="close-btn" onclick="closePktModal()">&times;</button></div><div class="modal-body"><p>Web capture uses the access point channel to keep your connection active. Use the OLED Live Monitor for other channels.</p><div class="pkt-stats"><div class="pkt-stat"><div class="pkt-stat-value" id="pkt-total">0</div><div class="pkt-stat-label">Total</div></div><div class="pkt-stat"><div class="pkt-stat-value" id="pkt-beacon">0</div><div class="pkt-stat-label">Beacons</div></div><div class="pkt-stat"><div class="pkt-stat-value" id="pkt-data">0</div><div class="pkt-stat-label">Data</div></div><div class="pkt-stat"><div class="pkt-stat-value" id="pkt-probe">0</div><div class="pkt-stat-label">Probes</div></div><div class="pkt-stat" id="pkt-deauth-stat"><div class="pkt-stat-value" id="pkt-deauth">0</div><div class="pkt-stat-label">Deauth</div></div><div class="pkt-stat"><div class="pkt-stat-value" id="pkt-pps">0</div><div class="pkt-stat-label">PPS</div></div><div class="pkt-stat"><div class="pkt-stat-value" id="pkt-peak">0</div><div class="pkt-stat-label">Peak</div></div></div><div class="toggle-group"><button class="toggle-btn" id="verb-btn" onclick="toggleVerbose()">Log</button><button class="toggle-btn" onclick="exportPktLog()">Export</button><span id="pkt-unique" style="color:var(--muted);font-size:.72rem;margin-left:auto">Devices: 0</span></div><div class="pkt-content"><div class="pkt-log" id="pkt-log"></div><canvas class="pkt-graph" id="pkt-graph" width="750" height="230"></canvas></div></div><div class="modal-footer"><button class="btn btn-primary" onclick="closePktModal()">Close</button></div></div></div>
 <script src="/app.js"></script>
 </body>
 </html>

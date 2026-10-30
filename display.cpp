@@ -61,44 +61,61 @@ void drawGrid(uint8_t x0, uint8_t y0, uint8_t width, uint8_t height) {
 
 // ── Modern UI helpers ──────────────────────────────────────────────
 
+void drawTextFit(uint8_t x, uint8_t baseline, const char* text, uint8_t width) {
+  char line[65];
+  size_t n = 0;
+  if (!text || x >= 128) return;
+  width = min(width, (uint8_t)(128 - x));
+  while (text[n] && n < sizeof(line) - 1) {
+    unsigned char c = (unsigned char)text[n];
+    line[n] = c >= 32 && c <= 126 ? c : '?';
+    ++n;
+  }
+  bool clipped = text[n] != 0;
+  line[n] = 0;
+  while (n && oled.getStrWidth(line) > width) { line[--n] = 0; clipped = true; }
+  if (clipped) {
+    while (n && oled.getStrWidth(line) + oled.getStrWidth("...") > width) line[--n] = 0;
+    if (oled.getStrWidth("...") <= width && n + 3 < sizeof(line)) {
+      memcpy(line + n, "...", 4);
+    }
+  }
+  oled.drawStr(x, baseline, line);
+}
+
 void drawHeader(const char* title) {
+  oled.setDrawColor(1);
+  oled.setFont(u8g2_font_6x10_tf);
+  drawTextFit(0, 10, title, 128);
+  oled.drawHLine(0, 13, 128);
+}
+
+// Retain the original graph-page banner; menus use the quieter header.
+void drawGraphHeader(const char* title) {
   oled.drawRBox(0, 0, 128, 12, 2);
   oled.setFont(u8g2_font_5x7_tf);
-  uint8_t w = oled.getStrWidth(title);
-  uint8_t x = (128 - w) / 2;
+  uint16_t width = oled.getStrWidth(title);
   oled.setDrawColor(0);
-  oled.drawStr(x, 9, title);
+  drawTextFit(width < 128 ? (128 - width) / 2 : 0, 9, title, 128);
   oled.setDrawColor(1);
-  // Shadow line for depth
-  for (uint8_t sx = 0; sx < 128; sx += 2) {
-    oled.drawPixel(sx, 13);
-  }
+  for (uint8_t x = 0; x < 128; x += 2) oled.drawPixel(x, 13);
 }
 
 void drawFooterPill(uint8_t x, const char* label, bool filled) {
-  oled.setFont(u8g2_font_4x6_tf);
-  uint8_t w = oled.getStrWidth(label);
-  if (filled) {
-    oled.drawRBox(x, 55, w + 6, 9, 2);
-    oled.setDrawColor(0);
-    oled.drawStr(x + 3, 62, label);
-    oled.setDrawColor(1);
-  } else {
-    oled.drawRFrame(x, 55, w + 6, 9, 2);
-    oled.drawStr(x + 3, 62, label);
-  }
+  // Retain the API for existing screens; quiet text replaces decorative pills.
+  (void)filled;
+  oled.setFont(u8g2_font_5x7_tf);
+  drawTextFit(x, 63, label, x < 128 ? 128 - x : 0);
 }
 
 void drawFooter(const char* left, const char* right) {
-  oled.drawLine(0, 53, 127, 53);
-  if (left && strlen(left) > 0) {
-    drawFooterPill(1, left, false);
+  oled.setFont(u8g2_font_5x7_tf);
+  uint8_t rightWidth = 0;
+  if (right && *right) {
+    rightWidth = min((uint16_t)60, oled.getStrWidth(right));
+    drawTextFit(128 - rightWidth, 63, right, rightWidth);
   }
-  if (right && strlen(right) > 0) {
-    oled.setFont(u8g2_font_4x6_tf);
-    uint8_t w = oled.getStrWidth(right);
-    drawFooterPill(127 - w - 7, right, true);
-  }
+  if (left && *left) drawTextFit(0, 63, left, rightWidth ? 124 - rightWidth : 128);
 }
 
 void drawScrollDots(uint8_t scroll, uint16_t count, uint8_t visible) {

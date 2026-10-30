@@ -64,8 +64,10 @@ void IRAM_ATTR sniffer(void* buf, wifi_promiscuous_pkt_type_t type);
 void resetLiveStats();
 void resetAnalyzer();
 void resetSession();
+void updatePacketStats();
 
 void startApScan();
+void waitForApScan(uint32_t timeoutMs = 5000);
 void sortApsByRssi();
 void fetchApResults(bool forceSort = false);
 

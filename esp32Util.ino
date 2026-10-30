@@ -171,7 +171,7 @@ void buttonAwareDelay(unsigned long ms) {
 const char* bootLines[BOOT_MAX_LINES];
 uint8_t bootStatus[BOOT_MAX_LINES];
 uint8_t bootLineCount = 0;
-uint8_t bootTotalSteps = 9;
+uint8_t bootTotalSteps = 10;
 
 void drawBootScreen() {
   uint8_t startIdx = 0;
@@ -265,13 +265,16 @@ void setup() {
   bootOK();
 
   bootLog("Mounting SPIFFS");
-  if (SPIFFS.begin(true)) {
+  if (SPIFFS.begin(false)) {
     bootOK();
     bootLog("Loading vendors");
     loadVendorsFromSPIFFS();
     bootOK();
   } else {
     Serial.println("[ERROR] SPIFFS mount failed!");
+    bootStatus[bootLineCount - 1] = 2;
+    --bootTotalSteps; // The optional vendor-loading step was skipped.
+    drawBootScreen();
   }
 
   bootLog("Starting WiFi modem");
@@ -341,6 +344,8 @@ void loop() {
     }
   }
 
+  if (screenSleeping) { delay(20); return; }
+
   bool activelyScanning = (currentScreen == SCREEN_AUTO_WATCH ||
                             currentScreen == SCREEN_MONITOR ||
                             currentScreen == SCREEN_ANALYZER ||
@@ -353,7 +358,13 @@ void loop() {
                             currentScreen == SCREEN_WHY_IS_IT_SLOW ||
                             currentScreen == SCREEN_AP_WALK_TEST ||
                             currentScreen == SCREEN_BLE_WALK_TEST ||
-                            currentScreen == SCREEN_WEB_SERVER);
+                            currentScreen == SCREEN_WEB_SERVER ||
+                            currentScreen == SCREEN_RF_HEALTH ||
+                            currentScreen == SCREEN_CHANNEL_RECOMMENDATION ||
+                            currentScreen == SCREEN_ENVIRONMENT_CHANGE ||
+                            currentScreen == SCREEN_QUICK_SNAPSHOT ||
+                            currentScreen == SCREEN_CHANNEL_SCORECARD ||
+                            currentScreen == SCREEN_BASELINE_COMPARE);
 
   if (settings.screenTimeout > 0 && !screenSleeping && !activelyScanning) {
     if (millis() - lastActivity > (settings.screenTimeout * 1000UL)) {
@@ -369,17 +380,18 @@ void loop() {
   }
 
   if (millis() - lastDeauthCheck > 1000) {
-    deauthPerSecond = pktDeauth - lastDeauthCount;
-    lastDeauthCount = pktDeauth;
+    deauthPerSecond = (uint32_t)((uint64_t)(totalDeauthDetected - lastDeauthCount) * 1000 / (millis() - lastDeauthCheck));
+    lastDeauthCount = totalDeauthDetected;
     lastDeauthCheck = millis();
 
     if (deauthPerSecond > settings.deauthThreshold) {
       attackActive = true;
-    } else if (deauthPerSecond == 0 && attackActive) {
+    } else {
       attackActive = false;
     }
   }
 
+  if (currentScreen != SCREEN_MONITOR || !scanState.frozen) updatePacketStats();
   signalAlert = (avgRssi > settings.rssiThreshold);
   updateRGBStatus();
 

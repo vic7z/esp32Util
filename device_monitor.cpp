@@ -3,6 +3,9 @@
 #include "ble_scanner.h"
 #include "utils.h"
 #include <string.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include "capture.h"
 
 void IRAM_ATTR deviceMonitorSniffer(void* buf, wifi_promiscuous_pkt_type_t type);
 
@@ -10,6 +13,37 @@ bool deviceMonitorActive = false;
 bool webMonitorMode = false;
 static uint8_t monitorChannel = 1;
 static uint32_t lastChannelHop = 0;
+struct ClientObservation { uint8_t mac[6]; int8_t rssi; uint8_t channel; };
+static StaticQueue_t clientQueueState;
+static uint8_t clientQueueStorage[32 * sizeof(ClientObservation)];
+static QueueHandle_t clientQueue = nullptr;
+
+static void makeMonitorSpace() {
+  if (monitoredDeviceCount < MAX_MONITORED_DEVICES) return;
+  checkDeviceTimeouts();
+  int oldest = -1;
+  uint32_t oldestAge = 0, now = millis();
+  for (int i = 0; i < MAX_MONITORED_DEVICES; ++i) {
+    uint32_t age = now - monitoredDevices[i].lastSeen;
+    if (!monitoredDevices[i].isPresent && (oldest < 0 || age > oldestAge)) {
+      oldest = i; oldestAge = age;
+    }
+  }
+  if (oldest >= 0) { monitoredDevices[oldest] = {}; --monitoredDeviceCount; }
+}
+
+void initDeviceMonitorQueue() {
+  if (!clientQueue) clientQueue = xQueueCreateStatic(32, sizeof(ClientObservation), clientQueueStorage, &clientQueueState);
+}
+
+static void queueClient(const uint8_t* mac, int8_t rssi, uint8_t channel) {
+  if (!clientQueue) return;
+  ClientObservation observation;
+  memcpy(observation.mac, mac, 6);
+  observation.rssi = rssi;
+  observation.channel = channel;
+  xQueueSend(clientQueue, &observation, 0);
+}
 
 void addOrUpdateWiFiClient(const uint8_t* mac, int8_t rssi, uint8_t channel) {
   uint32_t now = millis();
@@ -30,12 +64,13 @@ void addOrUpdateWiFiClient(const uint8_t* mac, int8_t rssi, uint8_t channel) {
       monitoredDevices[i].rssi = rssi;
       monitoredDevices[i].channel = channel;
       monitoredDevices[i].lastSeen = now;
-      monitoredDevices[i].seenCount++;
+      if (monitoredDevices[i].seenCount < UINT16_MAX) monitoredDevices[i].seenCount++;
       monitoredDevices[i].isPresent = true;
       return;
     }
   }
 
+  makeMonitorSpace();
   if (monitoredDeviceCount < MAX_MONITORED_DEVICES) {
     for (int i = 0; i < MAX_MONITORED_DEVICES; i++) {
       if (!monitoredDevices[i].active) {
@@ -73,7 +108,7 @@ void addOrUpdateBLEDevice(const char* address, const char* name, int8_t rssi) {
         strcmp(monitoredDevices[i].bleAddr, address) == 0) {
       monitoredDevices[i].rssi = rssi;
       monitoredDevices[i].lastSeen = now;
-      monitoredDevices[i].seenCount++;
+      if (monitoredDevices[i].seenCount < UINT16_MAX) monitoredDevices[i].seenCount++;
       monitoredDevices[i].isPresent = true;
 
       if (name && strlen(name) > 0) {
@@ -84,6 +119,7 @@ void addOrUpdateBLEDevice(const char* address, const char* name, int8_t rssi) {
     }
   }
 
+  makeMonitorSpace();
   if (monitoredDeviceCount < MAX_MONITORED_DEVICES) {
     for (int i = 0; i < MAX_MONITORED_DEVICES; i++) {
       if (!monitoredDevices[i].active) {
@@ -125,9 +161,12 @@ void checkDeviceTimeouts() {
 }
 
 void IRAM_ATTR deviceMonitorSniffer(void* buf, wifi_promiscuous_pkt_type_t type) {
+  if (!buf || !deviceMonitorActive || (type != WIFI_PKT_MGMT && type != WIFI_PKT_DATA)) return;
   const wifi_promiscuous_pkt_t* p = (wifi_promiscuous_pkt_t*)buf;
 
   if (p->rx_ctrl.sig_len < 24) return;
+  if (p->rx_ctrl.rx_state != 0) return;
+  observeCapture(p->payload, p->rx_ctrl.sig_len - 4, p->rx_ctrl.channel, p->rx_ctrl.rssi);
 
   const uint8_t* frame = p->payload;
   uint8_t frameType = (frame[0] >> 2) & 0x03;
@@ -141,7 +180,7 @@ void IRAM_ATTR deviceMonitorSniffer(void* buf, wifi_promiscuous_pkt_type_t type)
 
   if (frameType == 0) {
     if (frameSubtype == 4 || frameSubtype == 0 || frameSubtype == 2) {
-      addOrUpdateWiFiClient(addr2, rssi, channel);
+      queueClient(addr2, rssi, channel);
     }
   }
   else if (frameType == 2) {
@@ -149,15 +188,16 @@ void IRAM_ATTR deviceMonitorSniffer(void* buf, wifi_promiscuous_pkt_type_t type)
     uint8_t fromDS = (frame[1] >> 1) & 0x01;
 
     if (toDS && !fromDS) {
-      addOrUpdateWiFiClient(addr2, rssi, channel);
+      queueClient(addr2, rssi, channel);
     }
     else if (!toDS && fromDS) {
-      addOrUpdateWiFiClient(addr1, rssi, channel);
+      queueClient(addr1, rssi, channel);
     }
   }
 }
 
 void startDeviceMonitorSniffer() {
+  initDeviceMonitorQueue();
   deviceMonitorActive = true;
   monitorChannel = 1;
   lastChannelHop = millis();
@@ -174,6 +214,10 @@ void startDeviceMonitorSniffer() {
 }
 
 void updateDeviceMonitor() {
+  ClientObservation observation;
+  while (clientQueue && xQueueReceive(clientQueue, &observation, 0) == pdTRUE) {
+    addOrUpdateWiFiClient(observation.mac, observation.rssi, observation.channel);
+  }
   if (deviceMonitorActive && !webMonitorMode && millis() - lastChannelHop > 300) {
     monitorChannel = (monitorChannel % 13) + 1;
     esp_wifi_set_channel(monitorChannel, WIFI_SECOND_CHAN_NONE);
@@ -183,12 +227,24 @@ void updateDeviceMonitor() {
   extern uint8_t bleDeviceCount;
   extern BLEDeviceInfo bleDevices[];
   for (int i = 0; i < bleDeviceCount; i++) {
-    if (bleDevices[i].isActive) {
+    if (bleDevices[i].isActive && millis() - bleDevices[i].lastSeen <= BLE_TIMEOUT_MS) {
+      bool refreshed = false;
+      for (int j = 0; j < MAX_MONITORED_DEVICES; ++j) {
+        if (monitoredDevices[j].active && monitoredDevices[j].type == 1 &&
+            strcmp(monitoredDevices[j].bleAddr, bleDevices[i].address) == 0 &&
+            monitoredDevices[j].lastSeen == bleDevices[i].lastSeen) refreshed = true;
+      }
+      if (refreshed) continue;
       addOrUpdateBLEDevice(
         bleDevices[i].address,
         bleDevices[i].name,
         bleDevices[i].rssi
       );
+      for (int j = 0; j < MAX_MONITORED_DEVICES; ++j) {
+        if (monitoredDevices[j].active && monitoredDevices[j].type == 1 &&
+            strcmp(monitoredDevices[j].bleAddr, bleDevices[i].address) == 0)
+          monitoredDevices[j].lastSeen = bleDevices[i].lastSeen;
+      }
     }
   }
 
@@ -196,7 +252,7 @@ void updateDeviceMonitor() {
 }
 
 void clearDeviceMonitor() {
-  deviceMonitorActive = false;
+  if (clientQueue) xQueueReset(clientQueue);
   for (int i = 0; i < MAX_MONITORED_DEVICES; i++) {
     monitoredDevices[i].active = false;
     monitoredDevices[i].isPresent = false;

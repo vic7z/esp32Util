@@ -11,6 +11,9 @@ void drawGrid(uint8_t x0, uint8_t y0, uint8_t width, uint8_t height);
 void drawPatternBar(uint8_t x, uint8_t y, uint8_t width, uint8_t height, uint8_t load);
 
 void drawHeader(const char* title);
+void drawGraphHeader(const char* title);
+// Single-line ASCII display text, sanitized and ellipsized to a pixel budget.
+void drawTextFit(uint8_t x, uint8_t baseline, const char* text, uint8_t width);
 void drawFooter(const char* left, const char* right = nullptr);
 void drawFooterPill(uint8_t x, const char* label, bool filled = false);
 void drawScrollDots(uint8_t scroll, uint16_t count, uint8_t visible);

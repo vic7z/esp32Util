@@ -39,15 +39,19 @@ const Vendor vendors[] = {
 const uint8_t vendorCount = sizeof(vendors) / sizeof(Vendor);
 
 void loadVendorsFromSPIFFS() {
+  free(ouiData); ouiData = nullptr; ouiCount = 0;
+  free(bleData); bleData = nullptr; bleCount = 0;
   // Load WiFi OUI binary table
   File ouiFile = SPIFFS.open("/oui.bin", "r");
   if (ouiFile) {
     size_t sz = ouiFile.size();
-    ouiCount = sz / OUI_ENTRY_SIZE;
+    ouiCount = (sz % OUI_ENTRY_SIZE == 0 && sz / OUI_ENTRY_SIZE <= UINT16_MAX) ? sz / OUI_ENTRY_SIZE : 0;
     if (ouiCount > 0) {
       ouiData = (uint8_t*)malloc(sz);
       if (ouiData) {
-        ouiFile.read(ouiData, sz);
+        if (ouiFile.read(ouiData, sz) != sz) {
+          free(ouiData); ouiData = nullptr; ouiCount = 0;
+        }
         Serial.printf("[VENDOR] Loaded %d WiFi OUIs (binary)\n", ouiCount);
       }
     }
@@ -60,11 +64,13 @@ void loadVendorsFromSPIFFS() {
   File bleFile = SPIFFS.open("/ble.bin", "r");
   if (bleFile) {
     size_t sz = bleFile.size();
-    bleCount = sz / BLE_ENTRY_SIZE;
+    bleCount = (sz % BLE_ENTRY_SIZE == 0 && sz / BLE_ENTRY_SIZE <= UINT16_MAX) ? sz / BLE_ENTRY_SIZE : 0;
     if (bleCount > 0) {
       bleData = (uint8_t*)malloc(sz);
       if (bleData) {
-        bleFile.read(bleData, sz);
+        if (bleFile.read(bleData, sz) != sz) {
+          free(bleData); bleData = nullptr; bleCount = 0;
+        }
         Serial.printf("[VENDOR] Loaded %d BLE company IDs (binary)\n", bleCount);
       }
     }
@@ -81,7 +87,12 @@ const char* getVendor(uint8_t* mac) {
     while (lo <= hi) {
       int mid = (lo + hi) / 2;
       int cmp = memcmp(mac, ouiData + mid * OUI_ENTRY_SIZE, 3);
-      if (cmp == 0) return (const char*)(ouiData + mid * OUI_ENTRY_SIZE + 3);
+      if (cmp == 0) {
+        static char name[13];
+        memcpy(name, ouiData + mid * OUI_ENTRY_SIZE + 3, 12);
+        name[12] = 0;
+        return name;
+      }
       if (cmp < 0) hi = mid - 1;
       else lo = mid + 1;
     }
@@ -103,7 +114,12 @@ const char* getBLEVendor(uint16_t mfgId) {
     while (lo <= hi) {
       int mid = (lo + hi) / 2;
       uint16_t id = (bleData[mid * BLE_ENTRY_SIZE] << 8) | bleData[mid * BLE_ENTRY_SIZE + 1];
-      if (id == mfgId) return (const char*)(bleData + mid * BLE_ENTRY_SIZE + 2);
+      if (id == mfgId) {
+        static char name[15];
+        memcpy(name, bleData + mid * BLE_ENTRY_SIZE + 2, 14);
+        name[14] = 0;
+        return name;
+      }
       if (mfgId < id) hi = mid - 1;
       else lo = mid + 1;
     }
@@ -172,6 +188,9 @@ const char* authStr(wifi_auth_mode_t m) {
     case WIFI_AUTH_WPA2_PSK: return "WPA2";
     case WIFI_AUTH_WPA_WPA2_PSK: return "WPA/WPA2";
     case WIFI_AUTH_WPA3_PSK: return "WPA3";
+    case WIFI_AUTH_WPA2_WPA3_PSK: return "WPA2/WPA3";
+    case WIFI_AUTH_WPA2_ENTERPRISE: return "WPA2-EAP";
+    case WIFI_AUTH_OWE: return "OWE";
     default: return "?";
   }
 }

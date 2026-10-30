@@ -6,8 +6,8 @@
 #include <Adafruit_NeoPixel.h>
 #include <Preferences.h>
 
-#define FW_VERSION "v2.0.5"
-#define FW_DATE "2026-02-14"
+#define FW_VERSION "v2.3.0"
+#define FW_DATE "2026-10-30"
 
 #define BTN_ACTION 2
 #define BTN_BACK_PIN 3
@@ -127,8 +127,8 @@ struct WalkTestState {
   uint8_t historyIndex;
   int8_t minRSSI;
   int8_t maxRSSI;
-  int32_t rssiSum;
-  uint16_t sampleCount;
+  int64_t rssiSum;
+  uint32_t sampleCount;
   uint8_t viewMode;
 };
 

@@ -3,6 +3,7 @@
 #include "wifi_scanner.h"
 #include "ble_scanner.h"
 #include <esp_sleep.h>
+#include "lan_network.h"
 
 uint32_t lastActivity = 0;
 bool screenSleeping = false;
@@ -27,6 +28,7 @@ void updateScreenTimeout(bool buttonPressed) {
 }
 
 void enterDeepSleep() {
+  disconnectLan();
   Serial.println("[SLEEP] Entering DEEP SLEEP - press RESET to wake");
   Serial.flush();
 

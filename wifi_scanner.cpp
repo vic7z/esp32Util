@@ -1,6 +1,10 @@
 #include "wifi_scanner.h"
 #include "security.h"
 #include "utils.h"
+#include "device_monitor.h"
+#include <WiFi.h>
+#include "packet_helpers.h"
+#include "capture.h"
 
 volatile uint32_t pktTotal = 0, pktBeacon = 0, pktData = 0, pktDeauth = 0, pktProbe = 0;
 volatile int32_t rssiAccum = 0;
@@ -58,16 +62,38 @@ uint8_t deauthChannel = 0;
 
 uint32_t beaconPps = 0;
 uint32_t deauthPps = 0;
+static uint32_t rateLastTime = 0, rateLastTotal = 0, rateLastBeacon = 0, rateLastDeauth = 0;
+static portMUX_TYPE rssiMux = portMUX_INITIALIZER_UNLOCKED;
+
+void updatePacketStats() {
+  uint32_t now = millis(), elapsed = now - rateLastTime;
+  if (elapsed < 1000) return;
+  uint32_t total = pktTotal, beacon = pktBeacon, deauth = pktDeauth;
+  uint32_t delta = total >= rateLastTotal ? total - rateLastTotal : total;
+  pps = (uint32_t)((uint64_t)delta * 1000 / elapsed);
+  beaconPps = (uint32_t)((uint64_t)(beacon >= rateLastBeacon ? beacon - rateLastBeacon : beacon) * 1000 / elapsed);
+  deauthPps = (uint32_t)((uint64_t)(deauth >= rateLastDeauth ? deauth - rateLastDeauth : deauth) * 1000 / elapsed);
+  smoothPps = 0.7f * smoothPps + 0.3f * pps;
+  peak = max(peak, pps); peakPPS = max(peakPPS, pps);
+  history[histIdx] = pps; histIdx = (histIdx + 1) % HISTORY_SIZE;
+  portENTER_CRITICAL(&rssiMux);
+  int32_t sum = rssiAccum;
+  uint32_t count = rssiCount;
+  rssiAccum = 0; rssiCount = 0;
+  portEXIT_CRITICAL(&rssiMux);
+  avgRssi = count ? (float)sum / count : -100;
+  rateLastTime = now; rateLastTotal = total; rateLastBeacon = beacon; rateLastDeauth = deauth;
+}
 
 void initWiFi() {
-  nvs_flash_init();
-  wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-  esp_wifi_init(&cfg);
+  // Arduino owns driver initialization and scan-complete event handling.
+  WiFi.mode(WIFI_STA);
 }
 
 static bool snifferRunning = false;
 
 void stopAllWifi() {
+  stopPcapCapture();
   esp_wifi_scan_stop();
   esp_wifi_set_promiscuous(false);
   extern bool snifferActive;
@@ -75,6 +101,8 @@ void stopAllWifi() {
   snifferActive = false;
   snifferChannel = 0;
   snifferRunning = false;
+  deviceMonitorActive = false;
+  webMonitorMode = false;
 }
 
 void switchSnifferChannel(uint8_t ch) {
@@ -121,6 +149,7 @@ void enterScanMode() {
 }
 
 void resetLiveStats() {
+  stopAllWifi();
   pktTotal = pktBeacon = pktData = pktDeauth = pktProbe = 0;
   rssiAccum = rssiCount = 0;
   pps = peak = lastPkt = 0;
@@ -128,9 +157,15 @@ void resetLiveStats() {
   memset(history, 0, sizeof(history));
   histIdx = 0;
   scanState.lastSecond = millis();
+  lastDeauthCount = totalDeauthDetected;
+  deauthPerSecond = beaconPps = deauthPps = 0;
+  attackActive = false;
+  rateLastTime = millis();
+  rateLastTotal = rateLastBeacon = rateLastDeauth = 0;
 }
 
 void resetAnalyzer() {
+  stopAllWifi();
   memset(chPackets, 0, sizeof(chPackets));
   memset(chBeacons, 0, sizeof(chBeacons));
   memset(chDeauth, 0, sizeof(chDeauth));
@@ -148,13 +183,25 @@ void resetSession() {
   peakPPS = 0;
   totalPackets = 0;
   totalDeauthDetected = 0;
+  lastDeauthCount = 0;
+  deauthPerSecond = 0;
+  lastDeauthCheck = millis();
   loggedPackets = 0;
 }
 
 void startApScan() {
-  wifi_scan_config_t cfg = {};
-  cfg.show_hidden = true;
-  esp_wifi_scan_start(&cfg, false);
+  if (WiFi.scanComplete() != WIFI_SCAN_RUNNING) {
+    WiFi.scanDelete();
+    WiFi.scanNetworks(true, true, false, 100);
+  }
+}
+
+void waitForApScan(uint32_t timeoutMs) {
+  uint32_t started = millis();
+  while (WiFi.scanComplete() == WIFI_SCAN_RUNNING && millis() - started < timeoutMs) {
+    buttonAwareDelay(10);
+    if (pendingButton != BTN_NONE) return;
+  }
 }
 
 void sortApsByRssi() {
@@ -170,9 +217,22 @@ void sortApsByRssi() {
 }
 
 void fetchApResults(bool forceSort) {
-  esp_wifi_scan_get_ap_num(&apCount);
-  apCount = min(apCount, (uint16_t)MAX_APS);
-  esp_wifi_scan_get_ap_records(&apCount, apList);
+  int16_t count = WiFi.scanComplete();
+  if (count < 0) return; // Keep the last complete scan until a new one finishes.
+  uint8_t selectedBSSID[6] = {};
+  bool hadSelection = apSelectedIndex < apCount;
+  if (hadSelection) memcpy(selectedBSSID, apList[apSelectedIndex].bssid, 6);
+  apCount = min(count, (int16_t)MAX_APS);
+  for (uint16_t i = 0; i < apCount; ++i) {
+    apList[i] = {};
+    strncpy((char*)apList[i].ssid, WiFi.SSID(i).c_str(), 32);
+    apList[i].ssid[32] = '\0';
+    memcpy(apList[i].bssid, WiFi.BSSID(i), 6);
+    apList[i].rssi = WiFi.RSSI(i);
+    apList[i].primary = WiFi.channel(i);
+    apList[i].authmode = WiFi.encryptionType(i);
+  }
+  WiFi.scanDelete();
   totalAPsFound = max(totalAPsFound, (uint32_t)apCount);
 
   secOpen = secWEP = secWPA = secWPA2 = secWPA3 = 0;
@@ -182,8 +242,10 @@ void fetchApResults(bool forceSort) {
       case WIFI_AUTH_WEP: secWEP++; break;
       case WIFI_AUTH_WPA_PSK: secWPA++; break;
       case WIFI_AUTH_WPA2_PSK:
+      case WIFI_AUTH_WPA2_ENTERPRISE:
       case WIFI_AUTH_WPA_WPA2_PSK: secWPA2++; break;
-      case WIFI_AUTH_WPA3_PSK: secWPA3++; break;
+      case WIFI_AUTH_WPA3_PSK:
+      case WIFI_AUTH_WPA2_WPA3_PSK: secWPA3++; break;
     }
   }
 
@@ -195,6 +257,13 @@ void fetchApResults(bool forceSort) {
     apScroll = 0;
     apSortedOnce = true;
   }
+  apSelectedIndex = 0;
+  if (hadSelection) {
+    for (uint16_t i = 0; i < apCount; ++i) {
+      if (memcmp(selectedBSSID, apList[i].bssid, 6) == 0) { apSelectedIndex = i; break; }
+    }
+  }
+  if (apScroll + apCursor >= apCount) apScroll = apCursor = 0;
 }
 
 uint8_t liveLoad() {
@@ -226,9 +295,11 @@ const char* channelInsight() {
 }
 
 uint8_t channelLoad(uint8_t ch) {
+  if (ch < 1 || ch > MAX_CHANNEL) return 0;
   // chPackets = total (includes beacons, data, probes, deauth, other)
   // Weight: data/probes/other at 1x, beacons at 0.5x, deauth at 3x
-  uint32_t other = chPackets[ch] - chBeacons[ch] - chDeauth[ch];
+  uint32_t classified = chBeacons[ch] + chDeauth[ch];
+  uint32_t other = chPackets[ch] >= classified ? chPackets[ch] - classified : 0;
   uint32_t score = other + chBeacons[ch] / 2 + chDeauth[ch] * 3;
   return min(score / 5, 100UL);
 }
@@ -246,7 +317,7 @@ uint8_t bestChannel() {
   uint8_t bestScore = 255;
   for (int ch = 1; ch <= MAX_CHANNEL; ch++) {
     uint8_t s = channelLoad(ch);
-    if (s < bestScore && chPackets[ch] > 0) {
+    if (s < bestScore) {
       bestScore = s;
       best = ch;
     }
@@ -285,21 +356,30 @@ extern bool    snifferActive;
 extern uint8_t ownApMac[6];
 
 void IRAM_ATTR sniffer(void* buf, wifi_promiscuous_pkt_type_t type) {
+  if (!buf || type == WIFI_PKT_MISC) return;
   const wifi_promiscuous_pkt_t* p = (wifi_promiscuous_pkt_t*)buf;
+  if (p->rx_ctrl.sig_len < 2) return;
+  if (type == WIFI_PKT_MGMT && p->rx_ctrl.sig_len < 24) return;
 
   uint8_t ch = p->rx_ctrl.channel;
+  if (p->rx_ctrl.rx_state != 0 || p->rx_ctrl.sig_len < 4) return;
 
   // Filter out own AP traffic in web-server sniffer mode
-  if (snifferActive && ownApMac[0] != 0 && p->rx_ctrl.sig_len >= 16) {
+  if (snifferActive && p->rx_ctrl.sig_len >= 14) {
     const uint8_t* addr1 = (const uint8_t*)&p->payload[4];
     const uint8_t* addr2 = (const uint8_t*)&p->payload[10];
-    if (memcmp(addr2, ownApMac, 6) == 0 || memcmp(addr1, ownApMac, 6) == 0) return;
+    if (memcmp(addr1, ownApMac, 6) == 0 ||
+        (p->rx_ctrl.sig_len >= 20 && memcmp(addr2, ownApMac, 6) == 0)) return;
   }
 
+  observeCapture(p->payload, p->rx_ctrl.sig_len - 4, ch, p->rx_ctrl.rssi);
   pktTotal++;
   totalPackets++;
+  if (ch >= 1 && ch <= MAX_CHANNEL) chPackets[ch]++;
+  portENTER_CRITICAL(&rssiMux);
   rssiAccum += p->rx_ctrl.rssi;
   rssiCount++;
+  portEXIT_CRITICAL(&rssiMux);
   
   uint8_t st = 0;
   uint8_t pktType = 0;
@@ -316,29 +396,23 @@ void IRAM_ATTR sniffer(void* buf, wifi_promiscuous_pkt_type_t type) {
       
       if (st == 0x08) { // Beacon
         pktBeacon++;
+        if (ch >= 1 && ch <= MAX_CHANNEL) chBeacons[ch]++;
         pktType = 3;
 
-        if (p->rx_ctrl.sig_len > 38) {
-          uint16_t offset = 36;
-          while (offset < p->rx_ctrl.sig_len - 2) {
-            uint8_t elemId = p->payload[offset];
-            uint8_t elemLen = p->payload[offset + 1];
-            if (elemId == 0 && elemLen <= 32 && offset + 2 + elemLen < p->rx_ctrl.sig_len) {
-              memcpy(ssidStr, &p->payload[offset + 2], elemLen);
-              ssidStr[elemLen] = 0;
-              break;
-            }
-            offset += 2 + elemLen;
-            if (elemLen == 0) break;
-          }
+        SSIDElement element = findSSID(p->payload, p->rx_ctrl.sig_len - 4, 36);
+        if (element.found) {
+          memcpy(ssidStr, p->payload + element.offset, element.length);
+          ssidStr[element.length] = 0;
         }
       } else if (st == 0x04 || st == 0x05) { // Probe request or response
         pktProbe++;
+        if (ch >= 1 && ch <= MAX_CHANNEL) chProbe[ch]++;
         pktType = 4;
-        if (st == 0x04 && p->payload && p->rx_ctrl.sig_len > 26) {
-          uint8_t ssidLen = p->payload[25];
-          if (ssidLen > 0 && ssidLen <= 32) {
-            memcpy(ssidStr, &p->payload[26], ssidLen);
+        if (st == 0x04) {
+          SSIDElement element = findSSID(p->payload, p->rx_ctrl.sig_len - 4, 24);
+          uint8_t ssidLen = element.length;
+          if (element.found && ssidLen > 0) {
+            memcpy(ssidStr, p->payload + element.offset, ssidLen);
             ssidStr[ssidLen] = 0;
 
             bool found = false;
@@ -361,6 +435,7 @@ void IRAM_ATTR sniffer(void* buf, wifi_promiscuous_pkt_type_t type) {
         }
       } else if (st == 0x0C || st == 0x0A) { // Deauth
         pktDeauth++;
+        if (ch >= 1 && ch <= MAX_CHANNEL) chDeauth[ch]++;
         totalDeauthDetected++;
         deauthChannel = ch;
         pktType = 2;
@@ -370,10 +445,16 @@ void IRAM_ATTR sniffer(void* buf, wifi_promiscuous_pkt_type_t type) {
     }
   } else if (type == WIFI_PKT_DATA) {
     pktData++;
+    if (ch >= 1 && ch <= MAX_CHANNEL) chData[ch]++;
     pktType = 1;
+    if (p->rx_ctrl.sig_len >= 28) {
+      uint8_t ds = p->payload[1] & 3;
+      bssid = ds == 1 ? (uint8_t*)&p->payload[4] : ds == 2 ? (uint8_t*)&p->payload[10] : ds == 0 ? (uint8_t*)&p->payload[16] : nullptr;
+    }
+    if (isEapol(p->payload, p->rx_ctrl.sig_len - 4)) pktType = 5;
   }
 
-  if (pktTotal % 5 == 0) {
+  if (pktTotal % 5 == 0 || pktType == 5) {
     PacketLog* pl = &pktLogBuffer[pktLogIndex];
     pl->timestamp = millis();
     pl->type = pktType;
@@ -392,6 +473,6 @@ void IRAM_ATTR sniffer(void* buf, wifi_promiscuous_pkt_type_t type) {
 
   if (loggingActive && settings.csvLogging && loggedPackets < 1000) {
     loggedPackets++;
-    Serial.printf("%lu,%d,%d,%d\n", millis(), ch, p->rx_ctrl.rssi, type);
+    // Serial output must not block the WiFi receive task.
   }
 }

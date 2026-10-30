@@ -2,8 +2,70 @@
 
 WiFi and BLE scanner, security monitor, and RF diagnostics tool for ESP32.
 
-![Version](https://img.shields.io/badge/version-v2.0.5-blue)
+![Version](https://img.shields.io/badge/version-v2.3.0-blue)
 ![Platform](https://img.shields.io/badge/platform-ESP32%2C%20ESP32--C3%2C%20ESP32--S2-green)
+
+## Current version: v2.3.0
+
+- Probe-request history, EAPOL activity detection and bounded RAM PCAP export.
+- Local network discovery, TCP port scanning and HTTP device identification.
+- Clearer three-row OLED menus and device lists, with the original Live Monitor layout preserved.
+
+Existing checked-in release binaries have not been regenerated for v2.3.0; build from the current source to use these features.
+
+ESP32-C3 is the primary compiled target. The latest firmware and SPIFFS web image were uploaded to a 4 MB ESP32-C3 and verified by the flashing tool. Physical OLED operation and real-network feature validation remain pending; see [PLAN.md](PLAN.md) for the exact checks and limits.
+
+## Screenshots
+
+These previews use **synthetic test data**. The web image is a browser screenshot; the OLED images are **128×64 U8g2 renders from the production drawing functions**, enlarged for readability, rather than photographs of a device.
+
+### Web UI — LAN scanner and device identification
+
+Select a discovered host and read its reported HTTP title, server header and response status. Suggested device categories are tentative clues.
+
+![Web UI showing TCP port results and HTTP device identification with synthetic data](docs/images/web-device-identification.jpg)
+
+### OLED — menus, scanning and monitoring
+
+Three-row menus, WiFi/BLE/client lists, detail views, Auto Watch and channel analysis. The original Live Monitor page remains intact.
+
+![Twelve OLED renders showing menus, scan lists, device details, Auto Watch, Live Monitor and channel analysis](docs/images/oled-screens.png)
+
+### OLED — original Live Monitor
+
+Channel, packet rate, load, packet-type counters, RSSI bar, patterned history graph and EAPOL/probe footer.
+
+![Original Live Monitor OLED layout rendered with synthetic packet data](docs/images/oled-live-monitor.png)
+
+## v2.1.0: Probe history, EAPOL, and PCAP
+
+Open **Analyzer → Probe History & EAPOL** in the web interface:
+
+1. **Start listening** records probe requests and EAPOL activity on the web access point's channel. The existing OLED Live Monitor and client monitor also collect history while listening.
+2. **New PCAP** starts a fresh raw capture. **Stop PCAP** keeps its packets while continuing history and EAPOL monitoring.
+3. **Download PCAP** stops raw recording and downloads `esp32-capture.pcap`. Open it in Wireshark; the Radiotap records include channel frequency and RSSI. The existing packet-log CSV export remains available separately.
+4. **Clear history & PCAP** clears probe history, EAPOL counts, and saved raw packets. It also clears the older probed-name list.
+
+Probe history keeps 24 `(source MAC, SSID)` entries, including wildcard probes, with count, latest RSSI/channel, and first/last device-uptime timestamps. The least recently seen entry is replaced at capacity; the eviction count is shown. EAPOL counts are shown overall and per channel; encrypted, fragmented, aggregated A-MSDU, malformed, and incomplete frames are not misread as plain EAPOL. EAPOL activity alone does not establish that a complete handshake was captured. EAPOL packets are labeled in the packet log, and the OLED Live Monitor footer shows EAPOL/history totals.
+
+PCAP storage is RAM-only: the first 32 packets, up to 768 raw 802.11 bytes each (783-byte snap length including Radiotap). Further packets increment the buffer-drop counter; oversized frames retain their original length and increment the truncation counter. These counters do not measure hardware losses or packets missed during Wi-Fi scans. Timestamps use 64-bit uptime, not wall-clock UTC. The hardware FCS is removed and Radiotap marks it absent. Restarting loses all history and captures. No SD card, flash writes, active probes, or deauthentication transmissions are added.
+
+Capture API: `GET /api/capture` (status/history), `GET /api/capture.pcap` (binary download), and POST actions `start_sniffer`, `stop_capture`, `start_pcap`, `stop_pcap`, `clear_capture` through `/api/action?type=...`. Starting PCAP replaces only the raw packet buffer; starting listening preserves probe/EAPOL history.
+
+The M5 reference and its license are documented in [THIRD_PARTY.md](THIRD_PARTY.md). Run `./scripts/test-capture.ps1` with Node.js and a complete Zig installation to execute the production C++ capture engine as WebAssembly, validate the PCAP format with an independent decoder, and run browser regressions. `node tests/preview-capture.cjs` serves a synthetic local UI fixture; it does not access a radio.
+
+## Stabilization work
+
+See [PLAN.md](PLAN.md) for the bug audit, validation status, hardware checks, and proposed M5-inspired additions. [AGENTS.md](AGENTS.md) describes repository conventions.
+
+This working version validates packet lengths and settings, escapes radio-derived text, uses asynchronous BLE scanning, and keeps web capture on the access point's channel so the browser stays connected. Use the OLED Live Monitor to monitor other channels. The web interface reports the channel actually being captured.
+
+Security indicators are investigative hints: an AP warning means matching non-empty SSIDs with different authentication modes, and BLE Review lists unnamed devices or recognized beacon advertisements. These do not prove an evil twin or personal tracking. Probed network names do not prove a network is hidden. ESP32-S2 supports the Wi-Fi tools only; it has no BLE radio.
+
+For a Windows firmware build, run `./scripts/build.ps1` from PowerShell with Arduino CLI, the ESP32 core, U8g2, and Adafruit NeoPixel installed. The script stages source files, saves new firmware under `build/c3`, and never flashes a device. Supply `-ArduinoCli` or `-ConfigFile` if your tools use custom locations. An optional `-ZigExe` selects LLVM's archive tool; it does not change Windows security settings. The verified dependency versions and exact checks are recorded in PLAN.md.
+
+Run browser regressions with `node tests/web-regressions.cjs`. The compile-time packet/JSON regressions can be checked with the ESP32 toolchain's `riscv32-esp-elf-g++ -std=c++17 -fsyntax-only tests/firmware-regressions.cpp`.
+
 
 ## Features
 
@@ -29,12 +91,12 @@ WiFi and BLE scanner, security monitor, and RF diagnostics tool for ESP32.
 
 ### Security
 - **Deauth Detection** — real-time monitoring of deauthentication and disassociation attacks with configurable alert thresholds and event logging
-- **Rogue AP Detection** — identifies evil twin access points by finding duplicate SSIDs with different BSSIDs
-- **BLE Tracker Watch** — flags suspicious BLE devices that may be tracking you (AirTags, Tiles, unknown persistent trackers)
+- **Rogue AP Review** — flags matching non-empty SSIDs with different authentication modes for investigation; this does not establish an evil twin
+- **BLE Tracker Watch** — lists unnamed devices and recognized beacon advertisements for manual review; this heuristic does not identify AirTags/Tiles or establish tracking
 - **Event Log** — timestamped security event history (last 10 events)
 
 ### Interface
-- **128x64 OLED Display** — hierarchical menu system with 11 main items and 4 submenus, scrollbar navigation, animated scanning indicators, RSSI bars on detail screens, and polished UI with header shadows and footer action pills
+- **128x64 OLED Display** — hierarchical menu system with 12 main items and 4 submenus, three-row menus and scan lists, readable primary text, and the original Live Monitor header, RSSI bar, patterned graph and footer
 - **Web Interface** — full-featured responsive single-page web UI with dark/light themes, accessible from any phone or laptop over WiFi (dashboard, analyzer, packet monitor, security, client tracking, settings)
 - **NeoPixel Status LED** — color-coded RF status at a glance (red=attack, green=clean, yellow=busy, blue=analyzing)
 - **Two-Button Control** — action button (navigate/select) and back button (return/sleep)
@@ -58,12 +120,12 @@ Runs on ESP32, ESP32-S2, and ESP32-C3. Default pin config is for a Waveshare ESP
 
 ## Controls
 
-- **Action button** — short press to navigate, long press (>500ms) to confirm/enter/toggle views
+- **Action button** — short press to navigate, long press (>700ms) to confirm/enter/toggle views
 - **Back button** — short press to go back, long press (>1.5s) for deep sleep (needs RESET to wake)
 
 ## OLED Menu
 
-The device has a hierarchical menu system with 11 main items and 4 submenus, all navigated with two buttons.
+The device has a hierarchical menu system with 12 main items and 4 submenus, all navigated with two buttons.
 
 ### Main Menu
 
@@ -87,7 +149,7 @@ The device has a hierarchical menu system with 11 main items and 4 submenus, all
 
 **Rogue AP Watch** — detects evil twin access points by finding multiple BSSIDs advertising the same SSID. Lists detected rogues with both BSSIDs for investigation.
 
-**BLE Tracker Watch** — identifies suspicious BLE devices that may be tracking you (e.g., AirTags, Tiles). Flags devices that appear consistently across scans.
+**BLE Tracker Watch** — lists unnamed BLE devices and iBeacon/Eddystone advertisements for manual review. These are candidates to inspect, not confirmed trackers.
 
 **Alert Settings** — configure deauth alert threshold (5-20 packets/second) and screen timeout duration.
 
@@ -120,7 +182,7 @@ The device has a hierarchical menu system with 11 main items and 4 submenus, all
 Start the web server from the main menu. The ESP32 creates a WiFi access point you connect to from your phone or laptop:
 
 - **SSID**: `ESP32-Tool` (configurable)
-- **Password**: `12345678` (configurable)
+- **Password**: the configured AP key. An unset/empty key creates an open access point; existing stored settings are retained.
 - **URL**: `http://esp32.util` or `http://192.168.4.1`
 
 The web UI is a responsive single-page app with dark and light themes, stored on SPIFFS.
@@ -129,7 +191,7 @@ The web UI is a responsive single-page app with dark and light themes, stored on
 Live overview with 6 stat cards (WiFi count, BLE count, alerts, best channel, RF load, uptime), a signal history chart, channel distribution bars, session stats (total APs found, peak PPS, total packets, deauth count), and RF health summary.
 
 ### WiFi Tab
-Table of all detected access points with signal bars, SSID, BSSID, channel, RSSI, security badge (Open/WEP/WPA2), and quality grade (A-F). Click any row for a detail modal showing vendor, estimated distance, and a button to start a walk test. Walk test shows live RSSI graph with current/min/max/avg stats. Hidden networks shown in a separate table when detected. Scan and Clear buttons for manual control.
+Table of all detected access points with signal bars, SSID, BSSID, channel, RSSI, security label, and quality grade (A-F). Click any row for details and a walk test. Directed probe requests appear under Probed Network Names; these names are not necessarily hidden networks. Scan and Clear buttons provide manual control.
 
 ### BLE Tab
 Table of all detected BLE devices with signal bars, name, address, RSSI, and type (Generic/iBeacon/Eddystone). Click any row for a detail modal. BLE scanning runs automatically in the background.
@@ -442,3 +504,22 @@ If you see `oui.bin not found` or `ble.bin not found`, re-flash the SPIFFS parti
 **v1.1.0** (2026-01-21) — Fixed WiFi scan timing across all screens (delays were too short, scans returned empty).
 
 **v1.0.0** — Initial release.
+
+## v2.2.0: Local network diagnostics
+Open **Local Network** in the web interface and connect to WiFi. Credentials stay in RAM and are cleared on disconnect or restart. Joining may change the device AP channel; reconnect your phone if needed. Radio capture and WiFi/BLE scans are paused in LAN mode.
+
+Discover up to 254 addresses using ARP, keeping 32 neighbors with IP, MAC and vendor. The default range covers the current /24 or smaller subnet. Cached neighbors may appear; client isolation can hide devices. Select **Use host**, then scan up to 32 unique TCP ports using commas or short ranges. One connection runs at a time with a 350 ms deadline. Results distinguish open, closed, timed out, error and not tested. Timeouts are inconclusive; common-use labels do not identify the actual service.
+
+Targets must be on the connected IPv4 subnet. The device itself, network/broadcast addresses and its AP subnet are excluded. Cancel preserves completed results. Disconnect, connection loss or an address change stops work. No payloads, banner collection, UDP scans or hostname resolution are included. Use on networks you administer.
+
+API: `GET /api/lan` and `POST /api/lan/action` with `type=connect|disconnect|discover|ports|cancel`. Run `./scripts/test-lan.ps1` for policy, simulated production transport and browser regressions. `node tests/preview-lan.cjs` serves synthetic data without scanning a network. Physical device validation remains pending.
+
+## OLED readability
+The OLED uses three-row menus and scan lists, larger primary text, simpler headers and graphs, and tap/hold hints. Full secondary records remain available through the web interface. Run `./scripts/test-oled.ps1` with Zig and U8g2 available to generate `build/oled-preview.png` from production drawing functions and check text bounds using synthetic observations. Physical display validation remains pending.
+
+## v2.3.0: HTTP device identification
+In **Local Network**, select **Use host** (or enter one LAN IPv4 address), choose an HTTP port under **Device identification**, and click **Identify device**. The latest result shows the HTTP response code, reported page title, Server header and content type. A few recognizable title keywords suggest a **possible** printer, NAS or network appliance; everything else remains unknown. These are self-reported clues, not verified device models or operating systems. MAC/OUI vendor and TCP port results remain separate evidence.
+
+Identification sends one `GET /` to one supported plain HTTP port: 80, 8080, 8000, 8888, 3000, 5000 or 7001. It shares the scanner's one nonblocking socket, reads at most 4,096 bytes in 512-byte steps, uses a 350 ms connection deadline and 2.5 second overall deadline, and limits parsed headers to 2 KB. Title/Server fields keep 96 bytes, content type 64. Compressed and transfer-encoded bodies retain headers only. Large/slow responses can be partial; title text may be absent if outside the sample. No HTTPS/TLS, DNS names, redirects, authentication, page scripts, linked pages, or website files are fetched. Unlike the M5 crawler, this is a bounded metadata sample, not a website mirror.
+
+Only connected-subnet targets are accepted, with the same AP/self/network/broadcast exclusions as port scans. Cancel, disconnect, connection loss and DHCP changes stop work; the latest identity is RAM-only and network changes clear it. Completed port results remain available during identification. Use `POST /api/lan/action` with `type=identify`, `target=<IPv4>` and `port=<supported port>`; `GET /api/lan` returns an `identity` object plus the port-results' `portTarget`. Run `scripts/test-lan.ps1` for simulated identification parser/transport and web checks. No real network scan or flashing is performed by these tests.

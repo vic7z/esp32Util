@@ -2,9 +2,12 @@
 #define BLE_SCANNER_H
 
 #include "config.h"
+#include <soc/soc_caps.h>
+#if SOC_BLE_SUPPORTED
 #include <BLEDevice.h>
 #include <BLEScan.h>
 #include <BLEAdvertisedDevice.h>
+#endif
 
 extern BLEDeviceInfo bleDevices[MAX_BLE_DEVICES];
 extern uint8_t bleDeviceCount;
@@ -14,11 +17,12 @@ extern uint8_t bleSelectedIndex;
 extern bool bleScanning;
 extern bool bleInitialized;
 extern uint32_t bleScanStart;
+#if SOC_BLE_SUPPORTED
 extern BLEScan* pBLEScan;
-
 class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
   void onResult(BLEAdvertisedDevice advertisedDevice);
 };
+#endif
 
 void initBLE();
 void startBLEScan();

@@ -2,6 +2,8 @@
 #include "display.h"
 
 void handleListNavigation(ButtonEvent ev, uint8_t& cursor, uint8_t& scroll, uint16_t count, uint8_t visibleRows) {
+  if (count == 0 || visibleRows == 0) { cursor = scroll = 0; return; }
+  if (scroll + cursor >= count) cursor = scroll = 0;
   if (ev == BTN_SHORT && count > 0) {
     if (scroll + cursor + 1 < count) {
       if (cursor < visibleRows - 1) cursor++;
@@ -36,9 +38,10 @@ const char* formatElapsed(uint32_t elapsedSec) {
 }
 
 void drawRSSIGraph(int8_t* history, uint8_t historyIndex, int8_t minRSSI, int8_t maxRSSI, const char* title, const char* subtitle) {
+  if (minRSSI >= maxRSSI) { minRSSI = -100; maxRSSI = -20; }
   oled.firstPage();
   do {
-    drawHeader(title);
+    drawGraphHeader(title);
 
     const uint8_t graphX = 14;
     const uint8_t graphY = 14;

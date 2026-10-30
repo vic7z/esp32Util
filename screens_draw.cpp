@@ -1,4 +1,5 @@
 #include "screens_draw.h"
+#include "capture.h"
 #include "wifi_scanner.h"
 #include "ble_scanner.h"
 #include "menu.h"
@@ -45,39 +46,29 @@ extern uint8_t rfHealthHistoryIndex;
 extern int8_t rfHealthMinRSSI, rfHealthMaxRSSI;
 
 void drawGenericMenu(const char* title, const char** items, uint8_t itemCount, uint8_t& cursor) {
+  if (itemCount && cursor >= itemCount) cursor = 0;
   oled.firstPage();
   do {
-    drawHeader(title);
-
-    uint8_t startIdx = 0;
-    if (cursor >= 4) startIdx = cursor - 3;
-
+    // Three readable rows; title and position share a quiet header.
+    oled.setFont(u8g2_font_6x10_tf);
+    drawTextFit(0, 10, title, 96);
+    char position[10];
+    snprintf(position, sizeof(position), "%u/%u", itemCount ? cursor + 1 : 0, itemCount);
     oled.setFont(u8g2_font_5x7_tf);
-    for (int i = 0; i < 4 && (startIdx + i) < itemCount; i++) {
-      int itemIdx = startIdx + i;
-      uint8_t y = 24 + i * 10;
-
-      if (itemIdx == cursor) {
-        oled.drawRBox(0, y - 8, 122, 10, 2);
-        oled.setDrawColor(0);
-        oled.drawStr(3, y, "\x10");  // Right-pointing triangle
-        oled.drawStr(10, y, items[itemIdx]);
-        oled.setDrawColor(1);
-      } else {
-        oled.drawStr(10, y, items[itemIdx]);
-      }
+    oled.drawStr(128 - oled.getStrWidth(position), 10, position);
+    oled.drawHLine(0, 13, 128);
+    uint8_t start = cursor > 1 ? cursor - 1 : 0;
+    if (itemCount > 3 && start > itemCount - 3) start = itemCount - 3;
+    oled.setFont(u8g2_font_6x10_tf);
+    for (uint8_t row = 0; row < 3 && start + row < itemCount; ++row) {
+      uint8_t y = 25 + row * 13;
+      bool selected = start + row == cursor;
+      if (selected) { oled.drawBox(0, y - 9, 123, 12); oled.setDrawColor(0); }
+      drawTextFit(3, y, items[start + row], 117);
+      oled.setDrawColor(1);
     }
-
-    // Page indicator (e.g. "3/12")
-    if (itemCount > 4) {
-      oled.setFont(u8g2_font_4x6_tf);
-      char pgBuf[6];
-      sprintf(pgBuf, "%d/%d", cursor + 1, itemCount);
-      uint8_t pw = oled.getStrWidth(pgBuf);
-      oled.drawStr(127 - pw, 62, pgBuf);
-    }
-
-    drawScrollDots(startIdx, itemCount, 4);
+    drawScrollDots(start, itemCount, 3);
+    drawFooter("Tap:next", "Hold:open");
   } while (oled.nextPage());
 }
 
@@ -122,16 +113,32 @@ void drawSystemMenu() {
   drawGenericMenu("SYSTEM", systemMenuItems, SYSTEM_MENU_SIZE, systemMenuIndex);
 }
 
+// The Live Monitor retains its pre-cleanup footer; other pages use quiet text.
+void drawMonitorFooter(const char* label) {
+  oled.drawLine(0, 53, 127, 53);
+  oled.setFont(u8g2_font_4x6_tf);
+  uint8_t width = min((uint16_t)96, oled.getStrWidth(label));
+  oled.drawRFrame(1, 55, width + 6, 9, 2);
+  drawTextFit(4, 62, label, width);
+  oled.drawRBox(104, 55, 22, 9, 2);
+  oled.setDrawColor(0);
+  oled.drawStr(107, 62, "BACK");
+  oled.setDrawColor(1);
+}
+
 void drawMonitor() {
+  CaptureSummary captured = getCaptureSummary();
   oled.firstPage();
   do {
     char hdr[30];
     sprintf(hdr, "CH%02d %luP/s L:%d%%", scanState.currentChannel, pps, liveLoad());
-    drawHeader(hdr);
+    drawGraphHeader(hdr);
 
     oled.setFont(u8g2_font_4x6_tf);
     oled.setCursor(0, 20);
-    oled.printf("B:%lu D:%lu P:%lu X:%lu", pktBeacon, pktData, pktProbe, pktDeauth);
+    char counts[64];
+    snprintf(counts, sizeof(counts), "B:%lu D:%lu P:%lu X:%lu", (unsigned long)pktBeacon, (unsigned long)pktData, (unsigned long)pktProbe, (unsigned long)pktDeauth);
+    drawTextFit(0, 20, counts, 128);
 
     int rssiBar = constrain((int)avgRssi + 100, 0, 50);
     oled.drawRFrame(0, 22, 52, 7, 2);
@@ -162,7 +169,7 @@ void drawMonitor() {
       int idx = (histIdx + x) % HISTORY_SIZE;
       uint32_t val = history[idx];
       int barHeight = 0;
-      barHeight = (val * graphH) / visibleMax;
+      barHeight = ((uint64_t)val * graphH) / visibleMax;
 
       if (barHeight > 0) {
         int solidHeight = barHeight / 3;
@@ -189,11 +196,13 @@ void drawMonitor() {
     if (scanState.frozen) {
       oled.drawRBox(117, graphY, 10, 10, 2);
       oled.setDrawColor(0);
-      oled.drawStr(119, graphY + 7, "||");
+      oled.drawStr(118, graphY + 7, "||");
       oled.setDrawColor(1);
     }
 
-    drawFooter(channelInsight(), "BACK");
+    char captureFooter[28];
+    snprintf(captureFooter, sizeof(captureFooter), "E:%lu Probes:%u", (unsigned long)captured.eapol, captured.probeCount);
+    drawMonitorFooter(captureFooter);
   } while (oled.nextPage());
 }
 
@@ -203,7 +212,7 @@ void drawAnalyzer() {
 
   oled.firstPage();
   do {
-    drawHeader("CH ANALYZER");
+    drawGraphHeader("CH ANALYZER");
 
     const uint8_t chartX = 2, chartY = 14, chartW = 124, chartH = 30;
     const uint8_t chartBottom = chartY + chartH;
@@ -272,107 +281,37 @@ void drawAnalyzer() {
 void drawAutoWatch() {
   oled.firstPage();
   do {
+    char text[40];
+    oled.setFont(u8g2_font_6x10_tf);
     if (autoWatch.viewMode == 0) {
       drawHeader("AUTO WATCH");
-      oled.setFont(u8g2_font_5x7_tf);
-      char buf[22];
-
-      // WiFi/BLE counts with signal bar
-      sprintf(buf, "APs:%d BLE:%d", autoWatch.totalAPs, autoWatch.totalBLE);
-      oled.drawStr(2, 24, buf);
-
-      if (apCount > 0) {
-        long rssiSum = 0;
-        for (int i = 0; i < apCount; i++) rssiSum += apList[i].rssi;
-        int avg = rssiSum / apCount;
-        int barW = constrain(map(avg, -90, -30, 0, 28), 0, 28);
-        oled.drawRFrame(96, 17, 30, 7, 2);
-        if (barW > 0) oled.drawRBox(97, 18, barW, 5, 1);
-      }
-
-      // Dotted separator
-      for (uint8_t x = 4; x < 124; x += 3) oled.drawPixel(x, 27);
-
-      // Channel and packet info
-      sprintf(buf, "CH:%d PKT:%lu", scanState.currentChannel, pktTotal);
-      oled.drawStr(2, 36, buf);
-
-      // Dotted separator
-      for (uint8_t x = 4; x < 124; x += 3) oled.drawPixel(x, 39);
-
-      // Attack status with icon
-      if (deauthPerSecond > 0) {
-        oled.drawDisc(6, 46, 3);
-        oled.setDrawColor(0);
-        oled.drawStr(4, 49, "!");
-        oled.setDrawColor(1);
-        sprintf(buf, "DEAUTH:%lu/s", deauthPerSecond);
-        oled.drawStr(12, 49, buf);
-      } else {
-        oled.drawCircle(6, 46, 3);
-        oled.setFont(u8g2_font_4x6_tf);
-        oled.drawStr(4, 49, "\x2713");
-        oled.setFont(u8g2_font_5x7_tf);
-        oled.drawStr(12, 49, "No attacks");
-      }
-
-    } else if (autoWatch.viewMode == 1) {
-      drawHeader("TOP APs");
-      oled.setFont(u8g2_font_5x7_tf);
-      uint8_t showCount = min(apCount, (uint16_t)4);
-      for (int i = 0; i < showCount; i++) {
-        char ssid[13];
-        strncpy(ssid, (char*)apList[i].ssid, 12);
-        ssid[12] = '\0';
-        char buf[22];
-        sprintf(buf, "%s %d", strlen((char*)apList[i].ssid) ? ssid : "<hidden>", apList[i].rssi);
-        oled.drawStr(2, 23 + i * 10, buf);
-      }
-
-    } else if (autoWatch.viewMode == 2) {
-      drawHeader("TOP BLE");
-      oled.setFont(u8g2_font_5x7_tf);
-      uint8_t displayedCount = 0;
-      for (int i = 0; i < bleDeviceCount && displayedCount < 4; i++) {
-        if (!bleDevices[i].isActive) continue;
-        char name[13];
-        if (strlen(bleDevices[i].name) > 0) {
-          strncpy(name, bleDevices[i].name, 12);
-          name[12] = '\0';
-        } else {
-          strcpy(name, "Unknown");
-        }
-        char buf[22];
-        sprintf(buf, "%s %d", name, bleDevices[i].rssi);
-        oled.drawStr(2, 23 + displayedCount * 10, buf);
-        displayedCount++;
-      }
-
-    } else if (autoWatch.viewMode == 3) {
-      char title[20];
-      sprintf(title, "CH%d APs", scanState.currentChannel);
-      drawHeader(title);
-      oled.setFont(u8g2_font_4x6_tf);
-      uint8_t channelAPCount = 0;
+      snprintf(text, sizeof(text), "WiFi %u  BLE %u", autoWatch.totalAPs, autoWatch.totalBLE);
+      drawTextFit(0, 26, text, 128);
+      snprintf(text, sizeof(text), "CH %u  %lu pkt/s", scanState.currentChannel, (unsigned long)pps);
+      drawTextFit(0, 39, text, 128);
+      if (deauthPerSecond) snprintf(text, sizeof(text), "Deauth %lu/s", (unsigned long)deauthPerSecond);
+      else snprintf(text, sizeof(text), "No deauth seen");
+      drawTextFit(0, 52, text, 128);
+    } else {
+      if (autoWatch.viewMode == 1) drawHeader("TOP WIFI");
+      else if (autoWatch.viewMode == 2) drawHeader("TOP BLE");
+      else { snprintf(text, sizeof(text), "WIFI CHANNEL %u", scanState.currentChannel); drawHeader(text); }
       uint8_t shown = 0;
-      for (int i = 0; i < apCount && shown < 4; i++) {
-        if (apList[i].primary == scanState.currentChannel) {
-          char ssid[11];
-          strncpy(ssid, (char*)apList[i].ssid, 10);
-          ssid[10] = '\0';
-          char buf[24];
-          sprintf(buf, "%s %d", strlen((char*)apList[i].ssid) ? ssid : "<hidden>", apList[i].rssi);
-          oled.drawStr(2, 22 + shown * 9, buf);
-          shown++;
-          channelAPCount++;
-        }
+      uint16_t count = autoWatch.viewMode == 2 ? bleDeviceCount : apCount;
+      for (uint16_t i = 0; i < count && shown < 3; ++i) {
+        if (autoWatch.viewMode == 2 && !bleDevices[i].isActive) continue;
+        if (autoWatch.viewMode == 3 && apList[i].primary != scanState.currentChannel) continue;
+        const char* name = autoWatch.viewMode == 2 ? bleDevices[i].name : (const char*)apList[i].ssid;
+        int rssi = autoWatch.viewMode == 2 ? bleDevices[i].rssi : apList[i].rssi;
+        uint8_t y = 26 + shown * 13;
+        drawTextFit(0, y, *name ? name : autoWatch.viewMode == 2 ? "Unnamed" : "<hidden>", 96);
+        snprintf(text, sizeof(text), "%d", rssi);
+        oled.drawStr(128 - oled.getStrWidth(text), y, text);
+        ++shown;
       }
-      for (int i = 0; i < apCount; i++) {
-        if (apList[i].primary == scanState.currentChannel) channelAPCount++;
-      }
+      if (!shown) oled.drawStr(0, 31, "No devices yet");
     }
-
-    drawFooter("VIEW", "BACK");
+    drawFooter("Tap:view", "Back");
   } while (oled.nextPage());
 }
 
@@ -415,32 +354,15 @@ void drawRFHealth() {
     oled.firstPage();
     do {
       drawHeader("RF HEALTH");
-      oled.setFont(u8g2_font_5x7_tf);
-
-      oled.setCursor(2, 23);
-      oled.printf("Devices: %d (%dAP+%dBLE)", totalDevices, apCount, bleDeviceCount);
-      oled.setCursor(2, 33);
-      oled.printf("Avg RSSI: %ddBm", avgRSSI);
-      oled.setCursor(2, 43);
-      oled.printf("Busy CH: %d (%d APs)", busiestCh, maxLoad);
-
-      // Health score with gradient bar
-      oled.setFont(u8g2_font_5x7_tf);
-      oled.setCursor(2, 51);
-      oled.printf("%d%%", healthScore);
-      {
-        const uint8_t barX = 24, barY = 45, barW = 100, barH = 8;
-        oled.drawRFrame(barX, barY, barW, barH, 2);
-        int filledW = (int)healthScore * (barW - 2) / 100;
-        if (filledW > 0) {
-          oled.drawRBox(barX + 1, barY + 1, filledW, barH - 2, 1);
-        }
-        // Tick marks at 33% and 66%
-        oled.drawVLine(barX + barW / 3, barY + barH, 2);
-        oled.drawVLine(barX + barW * 2 / 3, barY + barH, 2);
-      }
-
-      drawFooter("GRAPH", "BACK");
+      oled.setFont(u8g2_font_6x10_tf);
+      char text[36];
+      snprintf(text, sizeof(text), "Score %d%%", healthScore);
+      drawTextFit(0, 26, text, 128);
+      snprintf(text, sizeof(text), "WiFi %u  BLE %u", apCount, bleDeviceCount);
+      drawTextFit(0, 39, text, 128);
+      snprintf(text, sizeof(text), "Busy CH %d  %d dBm", busiestCh, avgRSSI);
+      drawTextFit(0, 52, text, 128);
+      drawFooter("Tap:graph", "Back");
     } while (oled.nextPage());
   } else {
     char subtitle[30];
@@ -456,241 +378,86 @@ void drawDeviceMonitor() {
   oled.firstPage();
   do {
     drawHeader("CLIENT MONITOR");
-
-    if (monitoredDeviceCount == 0) {
-      oled.setFont(u8g2_font_5x7_tf);
-      oled.drawStr(22, 32, "No devices yet");
-      oled.setFont(u8g2_font_4x6_tf);
-      // Animated dots based on millis
-      uint8_t dots = (millis() / 500) % 4;
-      char scanBuf[16] = "Scanning";
-      for (uint8_t d = 0; d < dots; d++) strcat(scanBuf, ".");
-      uint8_t sw = oled.getStrWidth(scanBuf);
-      oled.drawStr((128 - sw) / 2, 42, scanBuf);
-    } else {
-      oled.setFont(u8g2_font_4x6_tf);
-
-      uint8_t shown = 0;
-      uint8_t activeIndex = 0;
-      for (int i = 0; i < MAX_MONITORED_DEVICES && shown < 3; i++) {
-        if (!monitoredDevices[i].active) continue;
-
-        if (activeIndex < deviceScroll) {
-          activeIndex++;
-          continue;
-        }
-
-        uint8_t y = 16 + (shown * 16);
-
-        if (shown == deviceCursor) {
-          oled.drawRBox(0, y - 6, 128, 15, 2);
-          oled.setDrawColor(0);
-        }
-
-        oled.setCursor(0, y);
-        oled.printf("%c%c", monitoredDevices[i].type == 0 ? 'C' : 'B',
-                            monitoredDevices[i].isPresent ? '+' : '-');
-
-        char name[11];
-        strncpy(name, monitoredDevices[i].name, 10);
-        name[10] = '\0';
-        oled.setCursor(16, y);
-        oled.print(name);
-
-        oled.setCursor(104, y);
-        oled.printf("%d", monitoredDevices[i].rssi);
-
-        oled.setCursor(8, y + 7);
-        if (monitoredDevices[i].type == 0) {
-          oled.printf("%02X:%02X:%02X:%02X:%02X:%02X",
-            monitoredDevices[i].bssid[0], monitoredDevices[i].bssid[1],
-            monitoredDevices[i].bssid[2], monitoredDevices[i].bssid[3],
-            monitoredDevices[i].bssid[4], monitoredDevices[i].bssid[5]);
-        } else {
-          oled.print(monitoredDevices[i].bleAddr);
-        }
-
-        if (shown == deviceCursor) oled.setDrawColor(1);
-
-        shown++;
-        activeIndex++;
-      }
-
-      drawScrollDots(deviceScroll, monitoredDeviceCount, 3);
+    oled.setFont(u8g2_font_6x10_tf);
+    uint8_t shown = 0, activeIndex = 0;
+    for (uint8_t i = 0; i < MAX_MONITORED_DEVICES && shown < 3; ++i) {
+      if (!monitoredDevices[i].active) continue;
+      if (activeIndex++ < deviceScroll) continue;
+      uint8_t y = 25 + shown * 13;
+      if (shown == deviceCursor) { oled.drawBox(0, y - 9, 123, 12); oled.setDrawColor(0); }
+      drawTextFit(2, y, monitoredDevices[i].name[0] ? monitoredDevices[i].name : "Unnamed", 88);
+      char signal[8];
+      if (monitoredDevices[i].isPresent) snprintf(signal, sizeof(signal), "%d", monitoredDevices[i].rssi);
+      else snprintf(signal, sizeof(signal), "--");
+      oled.drawStr(120 - oled.getStrWidth(signal), y, signal);
+      oled.setDrawColor(1);
+      ++shown;
     }
-
-    drawFooterPill(1, "SEL");
-    drawFooterPill(32, "DETAIL");
-    drawFooter(nullptr, "BACK");
+    if (!shown) oled.drawStr(0, 31, "No devices yet");
+    drawScrollDots(deviceScroll, monitoredDeviceCount, 3);
+    drawFooter("Tap:next", "Hold:info");
   } while (oled.nextPage());
 }
 
 void drawDeviceDetail() {
-  if (deviceSelectedIndex >= MAX_MONITORED_DEVICES ||
-      !monitoredDevices[deviceSelectedIndex].active) {
-    drawPlaceholder("DEVICE DETAIL", "Invalid Device");
-    return;
+  if (deviceSelectedIndex >= MAX_MONITORED_DEVICES || !monitoredDevices[deviceSelectedIndex].active) {
+    drawPlaceholder("DEVICE DETAIL", "Invalid Device"); return;
   }
-
   MonitoredDevice* dev = &monitoredDevices[deviceSelectedIndex];
-
   oled.firstPage();
   do {
-    drawHeader(dev->type == 0 ? "WiFi CLIENT" : "BLE DEVICE");
-
-    oled.setFont(u8g2_font_4x6_tf);
-
-    // Name with emphasis
+    drawHeader(dev->name[0] ? dev->name : "Unnamed client");
+    oled.setFont(u8g2_font_6x10_tf);
+    char text[40];
+    snprintf(text, sizeof(text), "%s  %d dBm", dev->type == 0 ? "WiFi" : "BLE", dev->rssi);
+    drawTextFit(0, 26, text, 128);
+    snprintf(text, sizeof(text), "%s  x%u", dev->isPresent ? "Present" : "Not seen", dev->seenCount);
+    drawTextFit(0, 39, text, 128);
     oled.setFont(u8g2_font_5x7_tf);
-    char name[18];
-    strncpy(name, dev->name, 17);
-    name[17] = '\0';
-    oled.drawStr(0, 22, name);
-    oled.setFont(u8g2_font_4x6_tf);
-
-    // RSSI bar
-    int barWidth = map(constrain(dev->rssi, -90, -30), -90, -30, 0, 60);
-    oled.drawRFrame(0, 24, 62, 6, 1);
-    if (barWidth > 0) oled.drawRBox(1, 25, barWidth, 4, 1);
-    oled.setCursor(64, 29);
-    oled.printf("%ddBm", dev->rssi);
-    if (dev->type == 0) oled.printf(" CH%d", dev->channel);
-
-    // MAC address
-    oled.setCursor(0, 37);
-    if (dev->type == 0) {
-      oled.printf("%02X:%02X:%02X:%02X:%02X:%02X",
-        dev->bssid[0], dev->bssid[1], dev->bssid[2],
-        dev->bssid[3], dev->bssid[4], dev->bssid[5]);
-    } else {
-      oled.print(dev->bleAddr);
-    }
-
-    // Status with indicator
-    oled.setCursor(0, 45);
-    if (dev->isPresent) {
-      oled.drawDisc(3, 42, 2);
-      oled.setCursor(8, 45);
-      oled.print("Present");
-    } else {
-      oled.drawCircle(3, 42, 2);
-      oled.setCursor(8, 45);
-      oled.print("Not Seen");
-    }
-    oled.setCursor(60, 45);
-    oled.printf("x%d", dev->seenCount);
-
-    drawFooter(nullptr, "BACK");
+    if (dev->type == 0) snprintf(text, sizeof(text), "%02X:%02X:%02X:%02X:%02X:%02X", dev->bssid[0], dev->bssid[1], dev->bssid[2], dev->bssid[3], dev->bssid[4], dev->bssid[5]);
+    else snprintf(text, sizeof(text), "%s", dev->bleAddr);
+    drawTextFit(0, 52, text, 128);
+    drawFooter(nullptr, "Back:list");
   } while (oled.nextPage());
 }
 
 void drawApList() {
   oled.firstPage();
   do {
-    char hdr[25];
-    sprintf(hdr, "APs:%d BEST:#%d", apCount, bestAPIndex() + 1);
-    drawHeader(hdr);
-
-    for (int row = 0; row < AP_VISIBLE; row++) {
-      int idx = apScroll + row;
-      if (idx >= apCount) break;
-
-      int yPos = 22 + row * 14;
-
-      if (row == apCursor) {
-        oled.drawRBox(0, yPos - 7, 120, 14, 2);
-        oled.setDrawColor(0);
-      }
-
-      oled.setFont(u8g2_font_4x6_tf);
-      if (apList[idx].authmode == WIFI_AUTH_OPEN) {
-        oled.drawStr(2, yPos, "!");
-      } else if (apList[idx].authmode >= WIFI_AUTH_WPA2_PSK) {
-        oled.drawStr(2, yPos, "*");
-      } else {
-        oled.drawStr(2, yPos, "~");
-      }
-
-      oled.setFont(u8g2_font_5x7_tf);
-      char ssidBuf[11] = {0};
-      const char* ssid = strlen((char*)apList[idx].ssid) ? (char*)apList[idx].ssid : "<hidden>";
-      strncpy(ssidBuf, ssid, 10);
-      ssidBuf[10] = 0;
-      oled.drawStr(9, yPos, ssidBuf);
-
-      oled.setFont(u8g2_font_4x6_tf);
-      oled.setCursor(72, yPos);
-      oled.printf("CH%d", apList[idx].primary);
-
-      char grade = getQualityGrade(&apList[idx]);
-      oled.setCursor(98, yPos);
-      oled.print(grade);
-
-      int rssi = apList[idx].rssi;
-      int bars = 0;
-      if (rssi >= -50) bars = 4;
-      else if (rssi >= -60) bars = 3;
-      else if (rssi >= -70) bars = 2;
-      else if (rssi >= -80) bars = 1;
-
-      int barX = 107;
-      for (int b = 0; b < 4; b++) {
-        int barH = 2 + b * 2;
-        if (b < bars) {
-          oled.drawBox(barX + b * 5, yPos - barH, 3, barH);
-        } else {
-          oled.drawFrame(barX + b * 5, yPos - barH, 3, barH);
-        }
-      }
-
-      oled.setCursor(9, yPos + 6);
-      oled.printf("%s %.1fm", getVendor(apList[idx].bssid),
-                  estimateDistance(apList[idx].rssi));
-
-      if (row == apCursor) oled.setDrawColor(1);
+    char title[24];
+    snprintf(title, sizeof(title), "WIFI %u found", apCount);
+    drawHeader(title);
+    oled.setFont(u8g2_font_6x10_tf);
+    if (!apCount) { oled.drawStr(0, 31, "No networks yet"); }
+    for (uint8_t row = 0; row < AP_VISIBLE && apScroll + row < apCount; ++row) {
+      uint16_t idx = apScroll + row;
+      uint8_t y = 25 + row * 13;
+      if (row == apCursor) { oled.drawBox(0, y - 9, 123, 12); oled.setDrawColor(0); }
+      const char* name = apList[idx].ssid[0] ? (const char*)apList[idx].ssid : "<hidden>";
+      drawTextFit(2, y, name, 88);
+      char signal[8];
+      snprintf(signal, sizeof(signal), "%d", apList[idx].rssi);
+      oled.drawStr(120 - oled.getStrWidth(signal), y, signal);
+      oled.setDrawColor(1);
     }
-
     drawScrollDots(apScroll, apCount, AP_VISIBLE);
+    drawFooter("Tap:next", "Hold:info");
   } while (oled.nextPage());
 }
 
 void drawApDetail() {
+  if (apSelectedIndex >= apCount) { drawApList(); return; }
   wifi_ap_record_t* ap = &apList[apSelectedIndex];
   oled.firstPage();
   do {
-    char hdr[22] = {0};
-    strncpy(hdr, strlen((char*)ap->ssid) ? (char*)ap->ssid : "<hidden>", 16);
-    drawHeader(hdr);
-
-    oled.setFont(u8g2_font_5x7_tf);
-
-    // RSSI bar across the top of content area
-    int barWidth = map(constrain(ap->rssi, -90, -30), -90, -30, 0, 80);
-    oled.drawRFrame(0, 15, 82, 7, 2);
-    if (barWidth > 0) oled.drawRBox(1, 16, barWidth, 5, 1);
-    oled.setFont(u8g2_font_4x6_tf);
-    oled.setCursor(84, 21);
-    oled.printf("%ddBm(%c)", ap->rssi, getQualityGrade(ap));
-
-    // Details with label alignment
-    oled.setFont(u8g2_font_5x7_tf);
-    oled.setCursor(0, 30);
-    oled.printf("CH:%-3d SEC:%s", ap->primary, authStr(ap->authmode));
-
-    oled.setCursor(0, 39);
-    oled.printf("Vendor: %s", getVendor(ap->bssid));
-
-    oled.setCursor(0, 48);
-    oled.printf("Dist: %.1fm", estimateDistance(ap->rssi));
-
-    // MAC at bottom in small font
-    oled.setFont(u8g2_font_4x6_tf);
-    oled.setCursor(64, 48);
-    oled.printf("%02X:%02X:%02X:%02X:%02X:%02X",
-      ap->bssid[0], ap->bssid[1], ap->bssid[2],
-      ap->bssid[3], ap->bssid[4], ap->bssid[5]);
-
-    drawFooter("WALK", "LIST");
+    drawHeader(ap->ssid[0] ? (const char*)ap->ssid : "<hidden>");
+    oled.setFont(u8g2_font_6x10_tf);
+    char text[40];
+    snprintf(text, sizeof(text), "%d dBm  CH %u", ap->rssi, ap->primary);
+    drawTextFit(0, 26, text, 128);
+    drawTextFit(0, 39, authStr(ap->authmode), 128);
+    drawTextFit(0, 52, getVendor(ap->bssid), 128);
+    drawFooter("Hold:walk", "Tap:list");
   } while (oled.nextPage());
 }
 
@@ -769,6 +536,7 @@ void drawAPWalkTest() {
 
 
 void drawCompare() {
+  if (apCount == 0 || apCompareA >= apCount || apCompareB >= apCount) { drawApList(); return; }
   wifi_ap_record_t* apA = &apList[apCompareA];
   wifi_ap_record_t* apB = &apList[apCompareB];
 
@@ -838,121 +606,42 @@ void drawCompare() {
 void drawBLEScan() {
   oled.firstPage();
   do {
-    uint8_t activeCount = 0;
-    for (int i = 0; i < bleDeviceCount; i++) {
-      if (bleDevices[i].isActive) activeCount++;
+    char title[24];
+    snprintf(title, sizeof(title), "BLE %u found", bleDeviceCount);
+    drawHeader(title);
+    oled.setFont(u8g2_font_6x10_tf);
+    if (!bleDeviceCount) oled.drawStr(0, 31, "Listening for BLE");
+    for (uint8_t row = 0; row < BLE_VISIBLE && bleScroll + row < bleDeviceCount; ++row) {
+      uint16_t idx = bleScroll + row;
+      uint8_t y = 25 + row * 13;
+      if (row == bleCursor) { oled.drawBox(0, y - 9, 123, 12); oled.setDrawColor(0); }
+      const char* name = bleDevices[idx].name[0] ? bleDevices[idx].name : "Unnamed";
+      drawTextFit(2, y, name, 88);
+      char signal[8];
+      if (bleDevices[idx].isActive) snprintf(signal, sizeof(signal), "%d", bleDevices[idx].rssi);
+      else snprintf(signal, sizeof(signal), "--");
+      oled.drawStr(120 - oled.getStrWidth(signal), y, signal);
+      oled.setDrawColor(1);
     }
-    char hdr[22];
-    sprintf(hdr, "BLE:%d (%d)", bleDeviceCount, activeCount);
-    drawHeader(hdr);
-
-    if (bleDeviceCount == 0) {
-      oled.setFont(u8g2_font_5x7_tf);
-      uint8_t dots = (millis() / 500) % 4;
-      char scanBuf[16] = "Scanning";
-      for (uint8_t d = 0; d < dots; d++) strcat(scanBuf, ".");
-      uint8_t sw = oled.getStrWidth(scanBuf);
-      oled.drawStr((128 - sw) / 2, 35, scanBuf);
-    } else {
-      for (int row = 0; row < BLE_VISIBLE; row++) {
-        int idx = bleScroll + row;
-        if (idx >= bleDeviceCount) break;
-
-        int yPos = 22 + row * 14;
-
-        if (row == bleCursor) {
-          oled.drawRBox(0, yPos - 7, 120, 14, 2);
-          oled.setDrawColor(0);
-        }
-
-        oled.setFont(u8g2_font_4x6_tf);
-        if (bleDevices[idx].advType == 1) {
-          oled.drawStr(2, yPos, "B");
-        } else if (bleDevices[idx].isActive) {
-          oled.drawStr(2, yPos, "*");
-        } else {
-          oled.drawStr(2, yPos, "-");
-        }
-
-        oled.setFont(u8g2_font_5x7_tf);
-        char nameBuf[11] = {0};
-        strncpy(nameBuf, bleDevices[idx].name, 10);
-        nameBuf[10] = 0;
-        oled.drawStr(9, yPos, nameBuf);
-
-        oled.setFont(u8g2_font_4x6_tf);
-        oled.setCursor(78, yPos);
-        oled.printf("%d", bleDevices[idx].rssi);
-
-        int rssi = bleDevices[idx].rssi;
-        int bars = 0;
-        if (rssi >= -50) bars = 4;
-        else if (rssi >= -65) bars = 3;
-        else if (rssi >= -75) bars = 2;
-        else if (rssi >= -85) bars = 1;
-
-        int barX = 107;
-        for (int b = 0; b < 4; b++) {
-          int barH = 2 + b * 2;
-          if (b < bars) {
-            oled.drawBox(barX + b * 5, yPos - barH, 3, barH);
-          } else {
-            oled.drawFrame(barX + b * 5, yPos - barH, 3, barH);
-          }
-        }
-
-        oled.setCursor(9, yPos + 6);
-        char macBuf[13] = {0};
-        strncpy(macBuf, bleDevices[idx].address, 12);
-        oled.print(macBuf);
-
-        if (row == bleCursor) oled.setDrawColor(1);
-      }
-
-      drawScrollDots(bleScroll, bleDeviceCount, BLE_VISIBLE);
-    }
-
+    drawScrollDots(bleScroll, bleDeviceCount, BLE_VISIBLE);
+    drawFooter("Tap:next", "Hold:info");
   } while (oled.nextPage());
 }
 
 void drawBLEDetail() {
+  if (bleSelectedIndex >= bleDeviceCount) { drawBLEScan(); return; }
   BLEDeviceInfo* dev = &bleDevices[bleSelectedIndex];
-
   oled.firstPage();
   do {
-    char hdr[17] = {0};
-    strncpy(hdr, dev->name, 16);
-    drawHeader(strlen(dev->name) ? hdr : "BLE DEVICE");
-
+    drawHeader(dev->name[0] ? dev->name : "Unnamed BLE");
+    oled.setFont(u8g2_font_6x10_tf);
+    char text[32];
+    snprintf(text, sizeof(text), "%d dBm  %s", dev->rssi, dev->isActive ? "Active" : "Lost");
+    drawTextFit(0, 26, text, 128);
+    drawTextFit(0, 39, dev->advType == 1 ? "iBeacon" : dev->advType == 2 ? "Eddystone" : "Unknown type", 128);
     oled.setFont(u8g2_font_5x7_tf);
-
-    // RSSI bar across top
-    int barWidth = map(constrain(dev->rssi, -90, -30), -90, -30, 0, 80);
-    oled.drawRFrame(0, 15, 82, 7, 2);
-    if (barWidth > 0) oled.drawRBox(1, 16, barWidth, 5, 1);
-    oled.setFont(u8g2_font_4x6_tf);
-    oled.setCursor(84, 21);
-    oled.printf("%ddBm", dev->rssi);
-
-    oled.setFont(u8g2_font_5x7_tf);
-    float dist = estimateDistance(dev->rssi);
-    oled.setCursor(0, 30);
-    oled.printf("Distance: ~%.1fm", dist);
-
-    oled.setCursor(0, 38);
-    const char* typeStr = "Unknown";
-    if (dev->advType == 1) typeStr = "iBeacon";
-    else if (dev->advType == 2) typeStr = "Eddystone";
-    oled.printf("Type: %s", typeStr);
-
-    oled.setCursor(0, 46);
-    oled.printf("Status:%s", dev->isActive ? "Active" : "Lost");
-
-    oled.setFont(u8g2_font_4x6_tf);
-    oled.setCursor(0, 52);
-    oled.printf("MAC:%s", dev->address);
-
-    drawFooter("WALK", "LIST");
+    drawTextFit(0, 52, dev->address, 128);
+    drawFooter("Hold:walk", "Tap:list");
   } while (oled.nextPage());
 }
 
@@ -1120,9 +809,9 @@ void drawBLETrackerWatch() {
 
     oled.setCursor(0, 34);
     if (trackerCount > 0) {
-      oled.printf("Trackers: %d", trackerCount);
+      oled.printf("Review: %d", trackerCount);
     } else {
-      oled.print("No trackers found");
+      oled.print("No candidates found");
     }
 
     if (trackerCount > 0) {
@@ -1889,7 +1578,7 @@ void drawHiddenSSID() {
   oled.firstPage();
   do {
     char hdr[20];
-    sprintf(hdr, "Hidden:%d", hiddenCount);
+    sprintf(hdr, "Probed:%d", hiddenCount);
     drawHeader(hdr);
 
     if (hiddenCount == 0) {
@@ -2068,30 +1757,12 @@ void drawPlaceholder(const char* title, const char* subtitle) {
 void drawWebServer() {
   oled.firstPage();
   do {
-    drawHeader("WEB SERVER");
-
-    oled.setFont(u8g2_font_4x6_tf);
-
-    // Label column + value column layout
-    oled.drawStr(2, 22, "SSID:");
+    drawHeader("WEB INTERFACE");
+    oled.setFont(u8g2_font_6x10_tf);
+    drawTextFit(0, 26, settings.apSSID[0] ? settings.apSSID : "ESP32-Tool", 128);
+    oled.drawStr(0, 39, "192.168.4.1");
     oled.setFont(u8g2_font_5x7_tf);
-    oled.drawStr(30, 22, "ESP32-Tool");
-
-    oled.setFont(u8g2_font_4x6_tf);
-    oled.drawStr(2, 31, "IP:");
-    oled.setFont(u8g2_font_5x7_tf);
-    oled.drawStr(30, 31, "192.168.4.1");
-
-    oled.setFont(u8g2_font_4x6_tf);
-    oled.drawStr(2, 40, "URL:");
-    oled.setFont(u8g2_font_5x7_tf);
-    oled.drawStr(30, 40, "esp32.util");
-
-    oled.setFont(u8g2_font_4x6_tf);
-    oled.drawStr(2, 49, "Pass:");
-    oled.setFont(u8g2_font_5x7_tf);
-    oled.drawStr(30, 49, "12345678");
-
-    drawFooter(nullptr, "STOP");
+    drawTextFit(0, 52, settings.apPassword[0] ? "Key: configured WiFi key" : "Open WiFi (no key)", 128);
+    drawFooter("Join WiFi, open IP", "Stop");
   } while (oled.nextPage());
 }

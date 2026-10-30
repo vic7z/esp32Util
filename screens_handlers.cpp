@@ -102,6 +102,8 @@ void handleMainMenu(ButtonEvent ev) {
         break;
       case 4:
         currentScreen = SCREEN_DEVICE_MONITOR;
+        stopAllWifi();
+        startDeviceMonitorSniffer();
         deviceCursor = 0;
         deviceScroll = 0;
         scanState.lastScan = 0;
@@ -176,6 +178,7 @@ void handleSecurityMenu(ButtonEvent ev) {
 
       case 2:
         currentScreen = SCREEN_BLE_TRACKER_WATCH;
+        startBLEScan();
         break;
       case 3:
         currentScreen = SCREEN_ALERT_SETTINGS;
@@ -303,7 +306,7 @@ void handleAutoWatch(ButtonEvent ev) {
   if (millis() - scanState.lastAutoWifiScan > 5000) {
     enterScanMode();
     startApScan();
-    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
+    waitForApScan();
     fetchApResults(true);
     autoWatch.totalAPs = apCount;
     scanState.lastAutoWifiScan = millis();
@@ -311,7 +314,7 @@ void handleAutoWatch(ButtonEvent ev) {
     startBLEScan();
   }
   else if (millis() - scanState.lastSecond > 1000) {
-    scanState.currentChannel = (scanState.currentChannel % 11) + 1;
+    scanState.currentChannel = (scanState.currentChannel % MAX_CHANNEL) + 1;
     enterSnifferMode(scanState.currentChannel);
     scanState.lastSecond = millis();
   }
@@ -350,7 +353,7 @@ void handleRFHealth(ButtonEvent ev) {
   if (millis() - scanState.lastScan > 3000) {
     enterScanMode();
     startApScan();
-    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
+    waitForApScan();
     fetchApResults(false);
     startBLEScan();
     scanState.lastScan = millis();
@@ -398,31 +401,6 @@ void handleMonitor(ButtonEvent ev) {
     return;
   }
 
-  if (!scanState.frozen && millis() - scanState.lastSecond >= 1000) {
-    uint32_t d = pktTotal - lastPkt;
-    lastPkt = pktTotal;
-    smoothPps = 0.7 * smoothPps + 0.3 * d;
-    pps = (uint32_t)smoothPps;
-    peak = max(peak, pps);
-    peakPPS = max(peakPPS, pps);
-    history[histIdx] = pps;
-    histIdx = (histIdx + 1) % HISTORY_SIZE;
-
-      static uint32_t lastBeaconPkt = 0;
-    static uint32_t lastDeauthPkt = 0;
-    beaconPps = (uint32_t)pktBeacon - lastBeaconPkt;
-    deauthPps = (uint32_t)pktDeauth - lastDeauthPkt;
-    lastBeaconPkt = (uint32_t)pktBeacon;
-    lastDeauthPkt = (uint32_t)pktDeauth;
-
-    if (rssiCount) {
-      float r = (float)rssiAccum / rssiCount;
-      avgRssi = 0.8 * avgRssi + 0.2 * r;
-      rssiAccum = rssiCount = 0;
-    }
-    scanState.lastSecond = millis();
-  }
-
   drawMonitor();
 }
 
@@ -453,13 +431,7 @@ void handleAnalyzer(ButtonEvent ev) {
   else if (settings.scanSpeed == 2) hopDelay = 50;  // Slow
 
   if (millis() - scanState.analyzerLastHop > hopDelay) {
-    chPackets[scanState.analyzerChannel] += pktTotal;
-    chBeacons[scanState.analyzerChannel] += pktBeacon;
-    chDeauth[scanState.analyzerChannel] += pktDeauth;
-    chData[scanState.analyzerChannel] += pktData;
-    chProbe[scanState.analyzerChannel] += pktProbe;
-
-    pktTotal = pktBeacon = pktData = pktDeauth = pktProbe = 0;
+    // The receive callback attributes each frame to its actual channel.
     scanState.analyzerChannel = scanState.analyzerChannel % MAX_CHANNEL + 1;
     enterSnifferMode(scanState.analyzerChannel);
     scanState.analyzerLastHop = millis();
@@ -593,7 +565,7 @@ void handleAPWalkTest(ButtonEvent ev) {
   if (millis() - scanState.lastScan > WIFI_SCAN_DELAY_MS) {
     enterScanMode();
     startApScan();
-    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
+    waitForApScan();
     fetchApResults(false);
 
     if (apCount > 0) {
@@ -621,6 +593,13 @@ void handleAPWalkTest(ButtonEvent ev) {
 }
 
 void handleCompare(ButtonEvent ev) {
+  if (apCount == 0) {
+    currentScreen = SCREEN_AP_LIST;
+    drawApList();
+    return;
+  }
+  apCompareA %= apCount;
+  apCompareB %= apCount;
 
   if (ev == BTN_SHORT) {
     apCompareB = (apCompareB + 1) % apCount;
@@ -745,6 +724,7 @@ void handleBLEWalkTest(ButtonEvent ev) {
     currentScreen = SCREEN_BLE_DETAIL;
     stopBLEScan();
     walkTest.viewMode = 0;
+    walkTest.active = false;
     drawBLEDetail();
     return;
   }
@@ -784,8 +764,6 @@ void handleDeauthWatch(ButtonEvent ev) {
     enterSnifferMode(scanState.currentChannel);
     lastChannelHop = millis();
   }
-
-  totalDeauthDetected = pktDeauth;
 
   if (attackActive) {
     alertLevel = 2;
@@ -906,7 +884,10 @@ void handleAlertSettings(ButtonEvent ev) {
 }
 
 void updateRSSIHistory() {
-  if (apCount == 0) return;
+  if (apCount == 0) {
+    for (int i = 0; i < MAX_TRACKED_APS; ++i) rssiHistory[i].active = false;
+    return;
+  }
 
   uint8_t topIndices[MAX_TRACKED_APS] = {0, 0, 0};
   int8_t topRSSI[MAX_TRACKED_APS] = {-128, -128, -128};
@@ -923,6 +904,15 @@ void updateRSSIHistory() {
         break;
       }
     }
+  }
+
+  for (int i = 0; i < MAX_TRACKED_APS; ++i) {
+    bool retained = false;
+    for (int j = 0; j < MAX_TRACKED_APS; ++j) {
+      if (topRSSI[j] > -128 && memcmp(rssiHistory[i].bssid, apList[topIndices[j]].bssid, 6) == 0)
+        retained = true;
+    }
+    if (!retained) rssiHistory[i].active = false;
   }
 
   for (int i = 0; i < MAX_TRACKED_APS; i++) {
@@ -982,7 +972,7 @@ void handleWhyIsItSlow(ButtonEvent ev) {
   if (millis() - scanState.lastScan > 2000) {
     enterScanMode();
     startApScan();
-    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
+    waitForApScan();
     fetchApResults(false);
     updateRSSIHistory();
     scanState.lastScan = millis();
@@ -1002,7 +992,7 @@ void handleChannelRecommendation(ButtonEvent ev) {
   if (millis() - scanState.lastScan > 3000) {
     enterScanMode();
     startApScan();
-    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
+    waitForApScan();
     fetchApResults(false);
     scanState.lastScan = millis();
   }
@@ -1012,7 +1002,8 @@ void handleChannelRecommendation(ButtonEvent ev) {
 void handleEnvironmentChange(ButtonEvent ev) {
   if (ev == BTN_LONG) {
     baseline = currentSnapshot;
-    logEvent(1, "Baseline saved");
+    baseline.saved = true;
+    logEvent(3, "Baseline saved");
   }
 
   if (ev == BTN_BACK) {
@@ -1025,7 +1016,7 @@ void handleEnvironmentChange(ButtonEvent ev) {
   if (millis() - scanState.lastEnvCheck > 2000) {
     enterScanMode();
     startApScan();
-    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
+    waitForApScan();
     fetchApResults(false);
     takeSnapshot(&currentSnapshot);
     scanState.lastEnvCheck = millis();
@@ -1044,7 +1035,7 @@ void handleQuickSnapshot(ButtonEvent ev) {
   if (millis() - scanState.lastScan > 2000) {
     enterScanMode();
     startApScan();
-    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
+    waitForApScan();
     fetchApResults(false);
     updateBLEScan();
     scanState.lastScan = millis();
@@ -1071,7 +1062,7 @@ void handleChannelScorecard(ButtonEvent ev) {
   if (millis() - scanState.lastScan > 2000) {
     enterScanMode();
     startApScan();
-    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
+    waitForApScan();
     fetchApResults(false);
     scanState.lastScan = millis();
   }
@@ -1099,7 +1090,7 @@ void handleBaselineCompare(ButtonEvent ev) {
   if (millis() - scanState.lastBaselineUpdate > 2000) {
     enterScanMode();
     startApScan();
-    buttonAwareDelay(WIFI_SCAN_DELAY_MS);
+    waitForApScan();
     fetchApResults(false);
     takeSnapshot(&currentSnapshot);
     scanState.lastBaselineUpdate = millis();
@@ -1124,8 +1115,7 @@ void handleDisplaySettings(ButtonEvent ev) {
     if (displaySettingCursor == 0) {
       settings.rgbBrightness = (settings.rgbBrightness + 10) % 110;
       if (settings.rgbBrightness > 100) settings.rgbBrightness = 0;
-      rgb.setBrightness((settings.rgbBrightness * 255) / 100);
-      rgb.show();
+      updateRGBStatus();
     } else if (displaySettingCursor == 1) {
       if (settings.screenTimeout == 0) settings.screenTimeout = 30;
       else if (settings.screenTimeout == 30) settings.screenTimeout = 60;
@@ -1257,7 +1247,7 @@ void handleWebServer(ButtonEvent ev) {
 
   startWebServer();
   handleWebServerLoop();
-  
+
   static uint32_t lastWebDraw = 0;
   if (millis() - lastWebDraw > 1000) {
     drawWebServer();

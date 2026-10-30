@@ -10,7 +10,19 @@ uint8_t bleSelectedIndex = 0;
 bool bleScanning = false;
 bool bleInitialized = false;
 uint32_t bleScanStart = 0;
+#if SOC_BLE_SUPPORTED
 BLEScan* pBLEScan = nullptr;
+static bool bleScanPending = false;
+
+static uint8_t advertisementType(BLEAdvertisedDevice& device) {
+  if (device.haveManufacturerData()) {
+    String bytes = device.getManufacturerData();
+    if (bytes.length() >= 25 && (uint8_t)bytes[0] == 0x4c &&
+        (uint8_t)bytes[1] == 0 && (uint8_t)bytes[2] == 2 && (uint8_t)bytes[3] == 0x15) return 1;
+  }
+  if (device.isAdvertisingService(BLEUUID((uint16_t)0xFEAA))) return 2;
+  return 0;
+}
 
 void MyAdvertisedDeviceCallbacks::onResult(BLEAdvertisedDevice advertisedDevice) {
 }
@@ -39,6 +51,7 @@ void startBLEScan() {
 void stopBLEScan() {
   if (bleScanning && pBLEScan != nullptr) {
     pBLEScan->stop();
+    bleScanPending = false;
     pBLEScan->clearResults();
     bleScanning = false;
   }
@@ -51,14 +64,20 @@ void updateBLEScan() {
 
   uint32_t now = millis();
   
-  if (now - scanState.lastBLELoop > BLE_SCAN_INTERVAL_MS) {
+  if (bleScanPending || now - scanState.lastBLELoop > BLE_SCAN_INTERVAL_MS) {
     if (!pBLEScan->isScanning()) {
-      pBLEScan->clearResults();
-      BLEScanResults* results = pBLEScan->start(1, false);
+      if (!bleScanPending) {
+        pBLEScan->clearResults();
+        bleScanPending = pBLEScan->start(1, [](BLEScanResults) {}, false);
+        scanState.lastBLELoop = now;
+        return;
+      }
+      bleScanPending = false;
+      BLEScanResults* results = pBLEScan->getResults();
 
       if (results != nullptr) {
         int count = results->getCount();
-        for (int i = 0; i < count && bleDeviceCount < MAX_BLE_DEVICES; i++) {
+        for (int i = 0; i < count; i++) {
           BLEAdvertisedDevice device = results->getDevice(i);
           String addrStr = device.getAddress().toString();
           char addr[18];
@@ -71,6 +90,7 @@ void updateBLEScan() {
               bleDevices[j].rssi = (int8_t)device.getRSSI();
               bleDevices[j].lastSeen = now;
               bleDevices[j].isActive = true;
+              bleDevices[j].advType = advertisementType(device);
               if (device.haveName()) {
                 strncpy(bleDevices[j].name, device.getName().c_str(), 32);
                 bleDevices[j].name[32] = '\0';
@@ -100,7 +120,7 @@ void updateBLEScan() {
             bleDevices[bleDeviceCount].rssi = (int8_t)device.getRSSI();
             bleDevices[bleDeviceCount].lastSeen = now;
             bleDevices[bleDeviceCount].isActive = true;
-            bleDevices[bleDeviceCount].advType = 0;
+            bleDevices[bleDeviceCount].advType = advertisementType(device);
             bleDevices[bleDeviceCount].mfgId = 0xFFFF;
 
             // Extract manufacturer company ID from advertisement data
@@ -145,6 +165,8 @@ void updateBLEScan() {
   }
 
   cleanupInactiveBLE();
+  if (bleScroll + bleCursor >= bleDeviceCount) bleScroll = bleCursor = 0;
+  if (bleSelectedIndex >= bleDeviceCount) bleSelectedIndex = 0;
 }
 
 void sortBLEByRSSI() {
@@ -182,3 +204,12 @@ uint8_t getActiveBLECount() {
   }
   return count;
 }
+#else
+void initBLE() { Serial.println("[BLE] This board has no Bluetooth radio"); }
+void startBLEScan() {}
+void stopBLEScan() {}
+void updateBLEScan() {}
+void sortBLEByRSSI() {}
+void cleanupInactiveBLE() {}
+uint8_t getActiveBLECount() { return 0; }
+#endif
